@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useMetaStore } from '../store/metaStore';
 import { DEFAULT_BASE_URL, probeDetail, type DetailProbe } from '../api/championsBattleData';
+import { importarMeta, type ImportResult } from '../api/importer';
 import { activeRegulation, formatSummary, REGULATIONS, regulationIsStale } from '../data/rules';
 import { snapshotAgeLabel } from '../api/cache';
 import { Button, Card, Pill, Section } from '../components/ui';
@@ -13,6 +14,8 @@ export default function SettingsPage() {
   const [probe, setProbe] = useState<DetailProbe | null>(null);
   const [probando, setProbando] = useState(false);
   const [probeId, setProbeId] = useState('garchomp');
+  const [colado, setColado] = useState('');
+  const [importe, setImporte] = useState<ImportResult | null>(null);
   const reg = activeRegulation();
 
   return (
@@ -67,6 +70,81 @@ export default function SettingsPage() {
             <Button onClick={() => void clearCache()}>Limpar cache</Button>
             <Button onClick={() => setShowDiag((v) => !v)}>Diagnostico</Button>
           </div>
+        </Card>
+      </Section>
+
+      <Section
+        title="Importar dados"
+        subtitle="Quando a fonte automatica nao serve, cole os numeros aqui"
+      >
+        <Card className="p-3">
+          <p className="mb-2 text-[11px] leading-relaxed text-ink-400">
+            O seu navegador alcanca fontes que este app nao alcanca sozinho — por CORS, por login, ou porque a
+            informacao esta numa pagina e nao num endpoint. Abra a fonte que voce confia, copie o JSON e cole aqui.
+            Um recorte importado passa a valer sobre o caminho ao vivo, e fica gravado no aparelho.
+          </p>
+
+          <textarea
+            value={colado}
+            onChange={(e) => setColado(e.target.value)}
+            rows={5}
+            placeholder={'[{"name":"Garchomp","usage_rate":0.352,"top_moves":[{"move":"Dragon Claw","percentage":0.23}]}, ...]'}
+            className="w-full rounded-lg border border-ink-700 bg-ink-900 p-2 font-mono text-[11px] outline-none focus:border-accent"
+          />
+
+          <div className="mt-2 flex flex-wrap gap-2">
+            <Button
+              variant="primary"
+              disabled={!colado.trim()}
+              onClick={() => setImporte(importarMeta(colado))}
+            >
+              Conferir
+            </Button>
+            <Button
+              disabled={!importe?.ok}
+              onClick={async () => {
+                if (importe?.snapshot) {
+                  await useMetaStore.getState().usarImportado(importe.snapshot);
+                  setColado('');
+                  setImporte(null);
+                }
+              }}
+            >
+              Usar no app
+            </Button>
+            {status === 'importado' && (
+              <Button
+                variant="danger"
+                onClick={() => void useMetaStore.getState().descartarImportado()}
+              >
+                Voltar ao ao vivo
+              </Button>
+            )}
+          </div>
+
+          {importe && (
+            <div className="mt-2 rounded-lg bg-ink-900 p-2 text-[11px]">
+              {importe.erro ? (
+                <p className="text-danger">{importe.erro}</p>
+              ) : (
+                <>
+                  <p className="text-good">
+                    {importe.reconhecidos} Pokemon reconhecidos · {importe.comDetalhe.moves} com golpes ·{' '}
+                    {importe.comDetalhe.items} com item · {importe.comDetalhe.spreads} com spread
+                  </p>
+                  <p className="mt-1 text-ink-300">Topo: {importe.amostra.join(' · ')}</p>
+                  <p className="mt-1 text-ink-600">
+                    Confira esse topo contra a fonte original antes de aplicar — e a checagem que pega escala errada.
+                  </p>
+                </>
+              )}
+              {importe.avisos.map((a, i) => (
+                <p key={i} className="mt-1 text-warn">
+                  {a}
+                </p>
+              ))}
+            </div>
+          )}
         </Card>
       </Section>
 

@@ -16,6 +16,15 @@ import {
   writeCachedDetails,
 } from '../api/cache';
 import { mapWithConcurrency } from '../lib/pool';
+import { get as get_, set as set_, del as del_ } from 'idb-keyval';
+
+async function lerImportado(): Promise<MetaSnapshot | null> {
+  try {
+    return (await get_<MetaSnapshot>(IMPORTADO_KEY)) ?? null;
+  } catch {
+    return null;
+  }
+}
 import { MetaFetchError, type MetaEntry, type MetaSnapshot, type SourceDiagnostics } from '../api/types';
 import type { UsageScale } from '../api/normalize';
 import { activeRegulation } from '../data/rules';
@@ -40,7 +49,9 @@ function storedUsageScale(): UsageScale {
   }
 }
 
-export type MetaStatus = 'ocioso' | 'carregando' | 'ao-vivo' | 'cache' | 'erro';
+export type MetaStatus = 'ocioso' | 'carregando' | 'ao-vivo' | 'cache' | 'importado' | 'erro';
+
+const IMPORTADO_KEY = 'champions-lab:importado';
 
 interface MetaState {
   status: MetaStatus;
@@ -65,6 +76,10 @@ interface MetaState {
 
   setBaseUrl(url: string): void;
   setUsageScale(scale: UsageScale): void;
+  /** Passa a usar um recorte colado a mao, gravado no aparelho. */
+  usarImportado(snapshot: MetaSnapshot): Promise<void>;
+  /** Descarta o recorte importado e volta ao caminho ao vivo. */
+  descartarImportado(): Promise<void>;
   load(force?: boolean): Promise<void>;
   enrich(id: string): Promise<void>;
   enrichTop(count: number): Promise<void>;
@@ -147,6 +162,21 @@ export const useMetaStore = create<MetaState>((set, get) => ({
     const { status, snapshot } = get();
     if (status === 'carregando') return;
     if (snapshot && !force) return;
+
+    // Um recorte colado a mao vence o caminho ao vivo: quem importou fez isso
+    // justamente porque a fonte automatica nao servia.
+    const importado = await lerImportado();
+    if (importado) {
+      set((prev) => ({
+        snapshot: importado,
+        status: 'importado',
+        fromCache: false,
+        error: null,
+        enriched: new Set<string>(),
+        revision: prev.revision + 1,
+      }));
+      return;
+    }
 
     set({ status: 'carregando', error: null });
     const format = activeRegulation().apiFormat;
@@ -256,6 +286,33 @@ export const useMetaStore = create<MetaState>((set, get) => ({
     } finally {
       set({ enriching: false });
     }
+  },
+
+  async usarImportado(snapshot) {
+    try {
+      await set_(IMPORTADO_KEY, snapshot);
+    } catch {
+      /* sem espaco: vale so nesta sessao */
+    }
+    set((prev) => ({
+      snapshot,
+      status: 'importado',
+      fromCache: false,
+      error: null,
+      diagnostics: null,
+      enriched: new Set<string>(),
+      revision: prev.revision + 1,
+    }));
+  },
+
+  async descartarImportado() {
+    try {
+      await del_(IMPORTADO_KEY);
+    } catch {
+      /* nada a fazer */
+    }
+    set({ snapshot: null, status: 'ocioso' });
+    await get().load(true);
   },
 
   async clearCache() {

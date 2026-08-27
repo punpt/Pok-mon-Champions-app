@@ -27,6 +27,14 @@ export interface MetaEntry {
   moves: WeightedName[];
   teammates: WeightedName[];
   spreads: MetaSpread[];
+  /**
+   * Taxa de vitoria, quando a fonte informa.
+   *
+   * Usage diz o que se joga; win rate diz o que funciona. Um Pokemon muito
+   * jogado com win rate baixo e uma armadilha popular, e as duas leituras
+   * juntas valem mais que qualquer uma sozinha.
+   */
+  winRate?: number;
 }
 
 export interface MetaSnapshot {
