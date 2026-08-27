@@ -86,9 +86,23 @@ exatamente o que quebrou sem sair do app.
 ```bash
 npm install
 npm run dev        # desenvolvimento
-npm test           # 25 testes dos motores
+npm test           # testes dos motores
 npm run build      # build de produção
 ```
+
+### Testando sem depender da API pública
+
+O repositório traz um servidor que imita a API de battle data, para você poder
+usar o app inteiro offline (e para exercitar o normalizador contra um payload em
+formato realista: `snake_case`, usage em escala 0-100, spread como string):
+
+```bash
+npm run demo       # sobe o mock na 4321 e o app na 5173
+```
+
+Depois, em **Ajustes › Endereço da API**, aponte para `http://localhost:4321` e
+recarregue. `npm run smoke` dirige o app com Playwright e salva screenshots de
+todas as telas em `/tmp/shots`.
 
 ### Instalando no celular
 

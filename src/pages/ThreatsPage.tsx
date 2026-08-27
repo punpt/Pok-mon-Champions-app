@@ -25,7 +25,7 @@ const FIELD_PRESETS: { id: string; label: string; field: FieldOptions }[] = [
 
 export default function ThreatsPage() {
   const team = useTeamStore((s) => s.teams.find((t) => t.id === s.activeId) ?? s.teams[0]);
-  const { snapshot, status, enrichTop } = useMetaStore();
+  const { snapshot, status, enrichTop, revision } = useMetaStore();
 
   const members = team.members.filter((m) => m.species);
   const [mode, setMode] = useState<Mode>('membro');
@@ -38,10 +38,12 @@ export default function ThreatsPage() {
   const selected = members.find((m) => m.uid === selectedUid) ?? members[0] ?? null;
   const field = FIELD_PRESETS.find((f) => f.id === preset)?.field ?? {};
 
-  // Puxa o detalhe dos mais jogados: sem os movesets reais, a analise vira palpite.
+  // Puxa o detalhe dos mais jogados: sem os movesets reais, a analise vira
+  // palpite. Depende da revisao, nao do objeto do snapshot, senao cada detalhe
+  // que chega dispara uma nova rajada.
   useEffect(() => {
-    if (snapshot) void enrichTop(30);
-  }, [snapshot, enrichTop]);
+    void enrichTop(30);
+  }, [revision, enrichTop]);
 
   useEffect(() => {
     if (!snapshot) return;
@@ -77,8 +79,11 @@ export default function ThreatsPage() {
     }
 
     return () => controller.abort();
+    // Depende da revisao do recorte, nao do objeto: assim o calculo pesado
+    // roda uma vez por carga e uma vez quando os detalhes terminam de chegar,
+    // em vez de recomecar a cada Pokemon enriquecido.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [snapshot, mode, selected?.uid, JSON.stringify(members.map((m) => [m.species, m.item, m.moves, m.sp])), preset]);
+  }, [revision, mode, selected?.uid, JSON.stringify(members.map((m) => [m.species, m.item, m.moves, m.sp])), preset]);
 
   if (!members.length) {
     return <Empty title="Monte o time primeiro." hint="Com um Pokemon ja da para ver quem te ameaca no ladder." />;

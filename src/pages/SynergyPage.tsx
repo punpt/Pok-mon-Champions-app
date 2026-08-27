@@ -17,7 +17,7 @@ export default function SynergyPage() {
   const navigate = useNavigate();
   const team = useTeamStore((s) => s.teams.find((t) => t.id === s.activeId) ?? s.teams[0]);
   const addMember = useTeamStore((s) => s.addMember);
-  const { snapshot, enrichTop, enrich } = useMetaStore();
+  const { snapshot, enrichTop, enrich, revision } = useMetaStore();
   const roster = useRoster();
 
   const members = team.members.filter((m) => m.species);
@@ -46,11 +46,11 @@ export default function SynergyPage() {
       alive = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [anchorId, snapshot, team.members]);
+  }, [anchorId, revision, team.members]);
 
   useEffect(() => {
-    if (snapshot) void enrichTop(30);
-  }, [snapshot, enrichTop]);
+    void enrichTop(30);
+  }, [revision, enrichTop]);
 
   useEffect(() => {
     if (!snapshot || !anchorSet) return;
@@ -79,8 +79,9 @@ export default function SynergyPage() {
     });
 
     return () => controller.abort();
+    // Revisao em vez do objeto do snapshot: ver a nota em ThreatsPage.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [snapshot, anchorSet?.species, anchorSet?.item, JSON.stringify(anchorSet?.moves)]);
+  }, [revision, anchorSet?.species, anchorSet?.item, JSON.stringify(anchorSet?.moves)]);
 
   const anchorSpecies = anchorSet ? battleSpecies(anchorSet) : null;
   const inTeam = useMemo(() => new Set(members.map((m) => m.species)), [members]);
