@@ -3,8 +3,11 @@ import { useTeamStore } from '../store/teamStore';
 import { useMetaStore } from '../store/metaStore';
 import { useRoster } from '../lib/roster';
 import { battleSpecies, type ChampionsSet } from '../data/set';
+import type { SpSpread } from '../data/stats';
+import { NATURES } from '../data/dex';
+import SpEditor from '../components/SpEditor';
 import { getMove, learnsetOf } from '../data/dex';
-import { presumedSetCached } from '../engine/presume';
+import { presumedSetCached, moveRelevance } from '../engine/presume';
 import { calcDamage, effectiveSpeed, type FieldOptions } from '../engine/calc';
 import { Card, Empty, Picker, Pill, Section, UsageBar, type Option } from '../components/ui';
 import { useMetaStore as useMeta } from '../store/metaStore';
@@ -23,9 +26,11 @@ export default function CalcPage() {
   const [field, setField] = useState<FieldOptions>({});
   const [atkBoost, setAtkBoost] = useState(0);
   const [defBoost, setDefBoost] = useState(0);
-  // Golpes editados a mao. Enquanto vazio, valem os do set do ladder.
+  // Golpes e spread editados a mao. Enquanto vazios, valem os do set do ladder.
   const [atkMoves, setAtkMoves] = useState<string[] | null>(null);
   const [defMoves, setDefMoves] = useState<string[] | null>(null);
+  const [atkTune, setAtkTune] = useState<Tune | null>(null);
+  const [defTune, setDefTune] = useState<Tune | null>(null);
 
   // Um lado pode ser o seu set do time; o outro, o set mais jogado do ladder.
   const resolve = async (id: string, setter: (s: ChampionsSet | null) => void) => {
@@ -39,24 +44,26 @@ export default function CalcPage() {
 
   useEffect(() => {
     setAtkMoves(null);
+    setAtkTune(null);
     void resolve(attackerId, setAttacker);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [attackerId, snapshot, team.members]);
 
   useEffect(() => {
     setDefMoves(null);
+    setDefTune(null);
     void resolve(defenderId, setDefender);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [defenderId, snapshot, team.members]);
 
   // Um lado com golpes editados vira um set proprio, sem mexer no time salvo.
   const atkFinal = useMemo(
-    () => (attacker && atkMoves ? { ...attacker, moves: atkMoves } : attacker),
-    [attacker, atkMoves],
+    () => aplicarEdicoes(attacker, atkMoves, atkTune),
+    [attacker, atkMoves, atkTune],
   );
   const defFinal = useMemo(
-    () => (defender && defMoves ? { ...defender, moves: defMoves } : defender),
-    [defender, defMoves],
+    () => aplicarEdicoes(defender, defMoves, defTune),
+    [defender, defMoves, defTune],
   );
 
   const results = useMemo(() => {
@@ -179,6 +186,9 @@ export default function CalcPage() {
             </Card>
           )}
 
+          {/* Cada lado fica ao lado do dano que ELE recebe: ajustar bulk e ver
+              a rolagem cair no mesmo lugar e o fluxo de "quanto preciso para
+              sobreviver". Separar os dois obrigava a rolar a cada ponto. */}
           <Section
             title={`Golpes de ${battleSpecies(atkFinal)?.name}`}
             subtitle="Comeca com os mais jogados do ladder; troque por qualquer um do movepool"
@@ -190,15 +200,26 @@ export default function CalcPage() {
               ) : undefined
             }
           >
-            <MoveSlots
-              speciesId={attacker!.species}
-              moves={atkFinal.moves}
-              onChange={setAtkMoves}
-            />
+            <MoveSlots speciesId={attacker!.species} moves={atkFinal.moves} onChange={setAtkMoves} />
           </Section>
 
           <Section title={`${battleSpecies(atkFinal)?.name} → ${battleSpecies(defFinal)?.name}`}>
             <DamageList results={results?.forward ?? []} />
+          </Section>
+
+          <Section
+            title={`Stat Points de ${battleSpecies(defFinal)?.name}`}
+            subtitle="Suba o bulk e veja a rolagem acima cair ate parar de matar"
+            right={
+              defTune ? (
+                <button onClick={() => setDefTune(null)} className="text-[11px] text-accent">
+                  Voltar ao padrao
+                </button>
+              ) : undefined
+            }
+          >
+            <Sobrevivencia recebido={results?.forward ?? []} />
+            <TuneBlock set={defFinal} onChange={setDefTune} />
           </Section>
 
           <Section
@@ -211,15 +232,25 @@ export default function CalcPage() {
               ) : undefined
             }
           >
-            <MoveSlots
-              speciesId={defender!.species}
-              moves={defFinal.moves}
-              onChange={setDefMoves}
-            />
+            <MoveSlots speciesId={defender!.species} moves={defFinal.moves} onChange={setDefMoves} />
           </Section>
 
           <Section title={`${battleSpecies(defFinal)?.name} → ${battleSpecies(atkFinal)?.name}`}>
             <DamageList results={results?.back ?? []} />
+          </Section>
+
+          <Section
+            title={`Stat Points de ${battleSpecies(atkFinal)?.name}`}
+            right={
+              atkTune ? (
+                <button onClick={() => setAtkTune(null)} className="text-[11px] text-accent">
+                  Voltar ao padrao
+                </button>
+              ) : undefined
+            }
+          >
+            <Sobrevivencia recebido={results?.back ?? []} />
+            <TuneBlock set={atkFinal} onChange={setAtkTune} />
           </Section>
         </>
       )}
@@ -331,28 +362,36 @@ function MoveSlots({
     return map;
   }, [entry]);
 
-  const options: Option[] = useMemo(() => {
-    const rows = pool
-      .map((name) => getMove(name)!)
-      .filter(Boolean)
-      .map((move) => {
-        const u = usage.get(move.name);
-        return {
-          option: {
-            value: move.name,
-            label: move.name,
-            hint:
-              `${move.type} · ${move.category}` +
-              (move.basePower ? ` · ${move.basePower} BP` : '') +
-              ((move.priority ?? 0) > 0 ? ` · prioridade +${move.priority}` : '') +
-              (u !== undefined ? ` · ${(u * 100).toFixed(0)}% do ladder` : ''),
-          } satisfies Option,
-          rank: u ?? -1,
-        };
-      })
-      .sort((a, b) => b.rank - a.rank || a.option.label.localeCompare(b.option.label));
-    return rows.map((r) => r.option);
-  }, [pool, usage]);
+  const options: Option[] = useMemo(
+    () =>
+      pool
+        .map((name) => getMove(name)!)
+        .filter(Boolean)
+        .map((move) => {
+          const u = usage.get(move.name);
+          return {
+            option: {
+              value: move.name,
+              label: move.name,
+              hint:
+                `${move.type} · ${move.category}` +
+                (move.basePower ? ` · ${move.basePower} BP` : '') +
+                ((move.priority ?? 0) > 0 ? ` · prioridade +${move.priority}` : '') +
+                (u !== undefined ? ` · ${(u * 100).toFixed(0)}% do ladder` : ''),
+            } satisfies Option,
+            usage: u ?? -1,
+            relevancia: moveRelevance(speciesId, move.name),
+          };
+        })
+        .sort(
+          (a, b) =>
+            b.usage - a.usage ||
+            b.relevancia - a.relevancia ||
+            a.option.label.localeCompare(b.option.label),
+        )
+        .map((r) => r.option),
+    [pool, usage, speciesId],
+  );
 
   const setSlot = (i: number, value: string) => {
     const next = [...moves];
@@ -362,7 +401,13 @@ function MoveSlots({
   };
 
   return (
-    <div className="grid grid-cols-2 gap-2">
+    <div>
+      {!usage.size && options.length > 0 && (
+        <p className="mb-2 rounded-lg border border-warn/25 bg-warn/10 px-2.5 py-1.5 text-[11px] leading-relaxed text-warn">
+          Sem dados de uso do ladder para este Pokemon — a ordem e por relevancia competitiva.
+        </p>
+      )}
+      <div className="grid grid-cols-2 gap-2">
       {[0, 1, 2, 3].map((i) => (
         <Picker
           key={i}
@@ -374,6 +419,98 @@ function MoveSlots({
           placeholder={options.length ? 'Escolher...' : 'Carregando movepool...'}
         />
       ))}
+      </div>
+    </div>
+  );
+}
+
+
+/** Spread e nature editados na propria calculadora. */
+interface Tune {
+  sp: SpSpread;
+  nature: string;
+}
+
+/**
+ * Aplica as edicoes locais sobre o set base sem tocar no time salvo.
+ *
+ * A calculadora e uma bancada de teste: mexer no bulk aqui nao pode alterar o
+ * time por acidente. Quando o jogador acha o numero que queria, ele leva o
+ * spread para o editor do time de proposito.
+ */
+function aplicarEdicoes(
+  base: ChampionsSet | null,
+  moves: string[] | null,
+  tune: Tune | null,
+): ChampionsSet | null {
+  if (!base) return null;
+  let out = base;
+  if (moves) out = { ...out, moves };
+  if (tune) out = { ...out, sp: tune.sp, nature: tune.nature };
+  return out;
+}
+
+/**
+ * Editor de Stat Points embutido na calculadora.
+ *
+ * E aqui que se descobre o bulk exato: voce sobe HP e Def um ponto por vez e ve
+ * a rolagem maxima do golpe cair, ate parar de matar. Sem isso a unica forma de
+ * achar o minimo era tentar um spread, ir para o time, voltar e recalcular.
+ */
+function TuneBlock({ set, onChange }: { set: ChampionsSet; onChange: (t: Tune) => void }) {
+  return (
+    <div className="rounded-xl border border-ink-700 bg-ink-850 p-3">
+      <div className="mb-2">
+        <Picker
+          label="Nature"
+          value={set.nature}
+          options={NATURES.map((n) => ({
+            value: n.name,
+            label: n.name,
+            hint: n.plus && n.minus ? `+${n.plus} / −${n.minus}` : 'neutra',
+          }))}
+          onChange={(v) => onChange({ sp: set.sp, nature: v })}
+        />
+      </div>
+      <SpEditor set={set} onChange={(sp) => onChange({ sp, nature: set.nature })} />
+    </div>
+  );
+}
+
+
+/**
+ * Veredito de sobrevivencia contra o golpe mais forte que chega.
+ *
+ * E o numero que se persegue ao mexer no bulk: nao "quanto dano ele faz", e
+ * "eu aguento?". Fica colado no editor de Stat Points para a resposta aparecer
+ * no mesmo lugar em que se mexe.
+ */
+function Sobrevivencia({ recebido }: { recebido: NonNullable<ReturnType<typeof calcDamage>>[] }) {
+  if (!recebido.length) return null;
+  const pior = recebido.reduce((a, b) => (b.percent[1] > a.percent[1] ? b : a));
+  const mata = pior.percent[1] >= 1;
+  const sempreMata = pior.percent[0] >= 1;
+  // Quantas das 16 rolagens matam: e a leitura honesta da margem.
+  const rolagensQueMatam = pior.rolls.filter((r) => r >= pior.defenderMaxHp).length;
+
+  const tom = sempreMata ? 'danger' : mata ? 'warn' : 'good';
+  const texto = sempreMata
+    ? `Morre para ${pior.move} em qualquer rolagem.`
+    : mata
+      ? `Morre para ${pior.move} em ${rolagensQueMatam} de 16 rolagens.`
+      : `Sobrevive a ${pior.move} com folga de ${(100 - pior.percent[1] * 100).toFixed(1)}% do HP.`;
+
+  return (
+    <div
+      className={`mb-2 rounded-lg border px-2.5 py-2 text-[11px] ${
+        tom === 'danger'
+          ? 'border-danger/30 bg-danger/10 text-danger'
+          : tom === 'warn'
+            ? 'border-warn/30 bg-warn/10 text-warn'
+            : 'border-good/30 bg-good/10 text-good'
+      }`}
+    >
+      {texto}
     </div>
   );
 }

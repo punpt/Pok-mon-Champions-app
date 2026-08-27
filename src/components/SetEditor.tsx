@@ -3,6 +3,7 @@ import type { ChampionsSet } from '../data/set';
 import { battleSpecies, willMegaEvolve } from '../data/set';
 import { abilitiesOf, dex, getMove, getSpecies, learnsetOf, NATURES } from '../data/dex';
 import { legalItemsFor } from '../data/items';
+import { moveRelevance } from '../engine/presume';
 import { Link } from 'react-router-dom';
 import { Picker, Sprite, TypeBadge, Pill, Button, type Option } from './ui';
 import SpEditor from './SpEditor';
@@ -62,20 +63,30 @@ export default function SetEditor({
           const move = getMove(name)!;
           const usage = moveUsage.get(move.name);
           return {
-            value: move.name,
-            label: move.name,
-            hint: `${move.type} · ${move.category}${move.basePower ? ` · ${move.basePower} BP` : ''}${
-              usage ? ` · ${(usage * 100).toFixed(0)}% do ladder` : ''
-            }`,
-            sortKey: usage ?? -1,
+            option: {
+              value: move.name,
+              label: move.name,
+              hint:
+                `${move.type} · ${move.category}` +
+                (move.basePower ? ` · ${move.basePower} BP` : '') +
+                ((move.priority ?? 0) > 0 ? ` · prioridade +${move.priority}` : '') +
+                (usage !== undefined ? ` · ${(usage * 100).toFixed(0)}% do ladder` : ''),
+            } satisfies Option,
+            // Usage do ladder manda. Sem ele, ordenamos por relevancia
+            // competitiva — alfabetico faria rolar por Agility e Bite antes de
+            // chegar no golpe que se joga.
+            usage: usage ?? -1,
+            relevancia: moveRelevance(set.species, move.name, set.item),
           };
         })
-        .sort((a, b) => b.sortKey - a.sortKey || a.label.localeCompare(b.label))
-        .map(({ sortKey, ...o }) => {
-          void sortKey;
-          return o;
-        }),
-    [moves, moveUsage],
+        .sort(
+          (a, b) =>
+            b.usage - a.usage ||
+            b.relevancia - a.relevancia ||
+            a.option.label.localeCompare(b.option.label),
+        )
+        .map((r) => r.option),
+    [moves, moveUsage, set.species, set.item],
   );
 
   const itemOpts = useMemo(() => itemOptions(set.species), [set.species]);
@@ -157,6 +168,13 @@ export default function SetEditor({
         <p className="mb-3 rounded-lg border border-accent/25 bg-accent/10 px-2.5 py-1.5 text-[11px] text-accent">
           Segurando {set.item}, entra em campo como {battle.name} com {abilitiesOf(battle)[0]}. So um Pokemon pode mega
           evoluir por partida.
+        </p>
+      )}
+
+      {!moveUsage.size && moveOptions.length > 0 && (
+        <p className="mb-2 rounded-lg border border-warn/25 bg-warn/10 px-2.5 py-1.5 text-[11px] leading-relaxed text-warn">
+          Sem dados de uso do ladder para este Pokemon. Os golpes estao ordenados por relevancia competitiva, nao pelo
+          que se joga de verdade. Ajustes › Movesets do ladder mostra o motivo.
         </p>
       )}
 

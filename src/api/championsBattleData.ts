@@ -242,6 +242,68 @@ export async function loadMetaIndex(opts: LoadOptions = {}): Promise<MetaSnapsho
   );
 }
 
+export interface DetailProbe {
+  url: string;
+  ok: boolean;
+  status: number | null;
+  ms: number;
+  error?: string;
+  /** Chaves do objeto devolvido, para ver como a API nomeia os campos. */
+  chaves: string[];
+  /** Quantos itens cada campo que nos interessa trouxe. */
+  encontrado: { moves: number; items: number; abilities: number; spreads: number; teammates: number };
+  amostra: string;
+}
+
+/**
+ * Testa o endpoint de detalhe de um Pokemon e devolve o que aconteceu.
+ *
+ * Existe porque a falha silenciosa e a pior: quando o detalhe nao vem, o app
+ * cai para um set derivado do movepool e continua funcionando, so que sem os
+ * dados do ladder — e nada na tela diz que a ordenacao por usage parou de valer.
+ */
+export async function probeDetail(id: string, opts: LoadOptions = {}): Promise<DetailProbe> {
+  const baseUrl = (opts.baseUrl || DEFAULT_BASE_URL).trim();
+  const format = opts.format || 'Doubles';
+  const url = join(baseUrl, `/api/battle/${format}/${normalizeId(id)}`);
+  const res = await fetchJson(url, { retries: 0 });
+
+  const vazio = { moves: 0, items: 0, abilities: 0, spreads: 0, teammates: 0 };
+  if (!res.ok || !isObject(res.body)) {
+    return {
+      url,
+      ok: false,
+      status: res.status,
+      ms: res.ms,
+      error: res.error ?? 'resposta nao e um objeto JSON',
+      chaves: [],
+      encontrado: vazio,
+      amostra: sample(res.raw),
+    };
+  }
+
+  const inner = (['data', 'pokemon', 'result', 'battle'] as const)
+    .map((k) => (res.body as Record<string, unknown>)[k])
+    .find((v) => isObject(v)) as Record<string, unknown> | undefined;
+  const body = inner ?? (res.body as Record<string, unknown>);
+
+  return {
+    url,
+    ok: true,
+    status: res.status,
+    ms: res.ms,
+    chaves: Object.keys(body),
+    encontrado: {
+      moves: toWeightedNames(pick(body, ['moves', 'moveset', 'movesets', 'topmoves'])).length,
+      items: toWeightedNames(pick(body, ['items', 'item', 'helditems', 'topitems'])).length,
+      abilities: toWeightedNames(pick(body, ['abilities', 'ability', 'topabilities'])).length,
+      spreads: toMetaSpreads(pick(body, ['spreads', 'spread', 'statpoints', 'evs', 'natures'])).length,
+      teammates: toWeightedNames(pick(body, ['teammates', 'teammate', 'partners', 'commonteammates'])).length,
+    },
+    amostra: sample(res.raw),
+  };
+}
+
 /** Detalhe de um Pokemon: moves, itens, abilities, teammates e spreads. */
 export async function loadMetaDetail(
   id: string,

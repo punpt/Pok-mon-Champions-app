@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useMetaStore } from '../store/metaStore';
-import { DEFAULT_BASE_URL } from '../api/championsBattleData';
+import { DEFAULT_BASE_URL, probeDetail, type DetailProbe } from '../api/championsBattleData';
 import { activeRegulation, formatSummary, REGULATIONS, regulationIsStale } from '../data/rules';
 import { snapshotAgeLabel } from '../api/cache';
 import { Button, Card, Pill, Section } from '../components/ui';
@@ -10,6 +10,9 @@ export default function SettingsPage() {
     useMetaStore();
   const [draft, setDraft] = useState(baseUrl);
   const [showDiag, setShowDiag] = useState(false);
+  const [probe, setProbe] = useState<DetailProbe | null>(null);
+  const [probando, setProbando] = useState(false);
+  const [probeId, setProbeId] = useState('garchomp');
   const reg = activeRegulation();
 
   return (
@@ -64,6 +67,68 @@ export default function SettingsPage() {
             <Button onClick={() => void clearCache()}>Limpar cache</Button>
             <Button onClick={() => setShowDiag((v) => !v)}>Diagnostico</Button>
           </div>
+        </Card>
+      </Section>
+
+      <Section
+        title="Movesets do ladder"
+        subtitle="Se os golpes nao aparecem ordenados por uso, e este endpoint que falhou"
+      >
+        <Card className="p-3">
+          <p className="mb-2 text-[11px] leading-relaxed text-ink-400">
+            O indice traz a lista de Pokemon e o usage de cada um. Os golpes, itens e spreads mais jogados vem de um
+            segundo endpoint, por Pokemon. Quando ele falha o app segue funcionando com um set deduzido do movepool,
+            mas a ordenacao por uso deixa de valer — e isso nao aparece sozinho na tela.
+          </p>
+          <div className="flex gap-2">
+            <input
+              value={probeId}
+              onChange={(e) => setProbeId(e.target.value)}
+              placeholder="garchomp"
+              className="min-w-0 flex-1 rounded-lg border border-ink-700 bg-ink-900 px-3 py-2 font-mono text-xs outline-none focus:border-accent"
+            />
+            <Button
+              variant="primary"
+              onClick={async () => {
+                setProbando(true);
+                try {
+                  setProbe(await probeDetail(probeId, { baseUrl }));
+                } finally {
+                  setProbando(false);
+                }
+              }}
+            >
+              {probando ? 'Testando...' : 'Testar'}
+            </Button>
+          </div>
+
+          {probe && (
+            <div className="mt-2 space-y-1.5 rounded-lg bg-ink-900 p-2 text-[11px]">
+              <div className="flex items-center gap-2">
+                <Pill tone={probe.ok ? 'good' : 'danger'}>{probe.status ?? 'rede'}</Pill>
+                <code className="min-w-0 flex-1 truncate text-ink-400">{probe.url}</code>
+                <span className="text-ink-600">{probe.ms}ms</span>
+              </div>
+              {probe.error && <p className="text-danger">{probe.error}</p>}
+              {probe.ok && (
+                <>
+                  <p className="text-ink-300">
+                    Golpes: <strong className={probe.encontrado.moves ? 'text-good' : 'text-danger'}>{probe.encontrado.moves}</strong>
+                    {' · '}Itens: <strong className={probe.encontrado.items ? 'text-good' : 'text-danger'}>{probe.encontrado.items}</strong>
+                    {' · '}Abilities: <strong className={probe.encontrado.abilities ? 'text-good' : 'text-danger'}>{probe.encontrado.abilities}</strong>
+                    {' · '}Spreads: <strong className={probe.encontrado.spreads ? 'text-good' : 'text-danger'}>{probe.encontrado.spreads}</strong>
+                  </p>
+                  <p className="text-ink-400">Campos devolvidos: {probe.chaves.join(', ') || '(nenhum)'}</p>
+                </>
+              )}
+              <pre className="max-h-40 overflow-auto rounded bg-ink-950 p-2 text-[10px] leading-relaxed text-ink-400">
+                {probe.amostra}
+              </pre>
+              <p className="text-ink-600">
+                Se os campos vierem com outro nome, mande este bloco que eu ajusto a leitura.
+              </p>
+            </div>
+          )}
         </Card>
       </Section>
 
