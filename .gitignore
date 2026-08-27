@@ -1,0 +1,17 @@
+node_modules/
+dist/
+dist-ssr/
+*.local
+.DS_Store
+.env
+.env.*
+!.env.example
+
+# Capacitor: as pastas nativas sao geradas por `npx cap add`
+/android
+/ios
+
+# Vite / PWA
+dev-dist/
+.vite/
+*.tsbuildinfo

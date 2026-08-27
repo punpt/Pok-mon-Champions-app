@@ -1,0 +1,57 @@
+@import 'tailwindcss';
+
+@theme {
+  --color-ink-950: #070a12;
+  --color-ink-900: #0b0f1a;
+  --color-ink-850: #111726;
+  --color-ink-800: #161d2f;
+  --color-ink-700: #1f2942;
+  --color-ink-600: #2c3855;
+  --color-ink-400: #6b7896;
+  --color-ink-300: #97a3bd;
+  --color-ink-100: #dfe5f1;
+
+  --color-accent: #4d8dff;
+  --color-accent-soft: #1d3a6e;
+
+  --color-danger: #ff5f6d;
+  --color-warn: #ffb648;
+  --color-good: #3ddc97;
+}
+
+:root {
+  color-scheme: dark;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--color-ink-900);
+  color: var(--color-ink-100);
+  font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  overscroll-behavior-y: none;
+}
+
+/* Respeita o notch e a barra de gestos no celular. */
+.safe-top { padding-top: env(safe-area-inset-top); }
+.safe-bottom { padding-bottom: env(safe-area-inset-bottom); }
+
+/* Faixas largas (tabelas, matrizes) rolam sozinhas em vez de esticar a pagina. */
+.scroll-x {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+input[type='range'] {
+  accent-color: var(--color-accent);
+}
+
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-thumb { background: var(--color-ink-700); border-radius: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
