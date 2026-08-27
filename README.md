@@ -94,7 +94,11 @@ npm run build      # build de produção
 
 O repositório traz um servidor que imita a API de battle data, para você poder
 usar o app inteiro offline (e para exercitar o normalizador contra um payload em
-formato realista: `snake_case`, usage em escala 0-100, spread como string):
+formato realista: `snake_case`, usage em escala 0-100, spread como string).
+
+> Os Pokémon e percentuais do mock são **inventados** — não são o roster de
+> nenhuma regulation. Servem só para exercitar o app. Quem está legal vem
+> sempre da API ao vivo.
 
 ```bash
 npm run demo       # sobe o mock na 4321 e o app na 5173
@@ -148,3 +152,11 @@ src/
 - As regulations ficam cadastradas em `src/data/rules.ts`. Quando a M-B vencer
   (09/09/2026), o app avisa que as regras podem estar desatualizadas até a
   próxima ser adicionada.
+- **Quem está legal na regulation vem da API, não de uma lista mantida à mão.**
+  O app cruza o que a API devolve com os grupos banidos pela regulation e
+  remove o que não deveria estar lá, avisando no Diagnóstico — se um Pokémon
+  banido aparecer no índice, é sinal de que aquele endpoint não está recortado
+  pela regulation vigente. Sem dados ao vivo, o seletor cai numa estimativa
+  pelas regras e a tela marca **"legalidade não confirmada"**; nesse modo as
+  abas de Ameaças e Sinergia se recusam a analisar, em vez de ranquear contra
+  um meta que não existe.

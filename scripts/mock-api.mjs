@@ -1,10 +1,12 @@
 /**
  * Servidor local que imita a API publica de battle data.
  *
- * Serve dois propositos: permitir testar o app de ponta a ponta sem depender da
- * rede externa, e exercitar o normalizador contra um payload em formato
- * realista (nomes de campo em snake_case, usage em escala 0-100, spread como
- * string "Nature:0/252/...").
+ * ATENCAO: os Pokemon e os percentuais abaixo sao INVENTADOS. Nao sao o roster
+ * de nenhuma regulation e nao devem ser lidos como tal — alguns deles podem nem
+ * existir no Pokemon Champions. O objetivo aqui e so exercitar o app e o
+ * normalizador contra um payload no formato certo (campos em snake_case, usage
+ * em escala 0-100, spread como string "Nature:0/256/..."). O roster de verdade
+ * vem sempre da API ao vivo.
  */
 import { createServer } from 'node:http';
 

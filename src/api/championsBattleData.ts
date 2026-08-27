@@ -15,6 +15,7 @@ import { isObject, pick, pickNumber, pickString, toMetaSpreads, toWeightedNames 
 import type { MetaEntry, MetaSnapshot, SourceDiagnostics } from './types';
 import { MetaFetchError } from './types';
 import { normalizeId, getSpecies } from '../data/dex';
+import { activeRegulation } from '../data/rules';
 
 export const DEFAULT_BASE_URL = 'https://championsbattledata.com';
 
@@ -85,6 +86,19 @@ function parseEntry(raw: unknown, fallbackIndex: number): MetaEntry | null {
   };
 }
 
+/** O Pokemon pertence a um grupo banido na regulation vigente? */
+function violatesBans(id: string): boolean {
+  const species = getSpecies(id);
+  if (!species) return false;
+  const reg = activeRegulation();
+  const tags = (species.tags ?? []) as string[];
+  if (reg.bans.restricted && tags.includes('Restricted Legendary')) return true;
+  if (reg.bans.paradox && tags.includes('Paradox')) return true;
+  if (reg.bans.mythical && tags.includes('Mythical')) return true;
+  if (reg.bans.treasuresOfRuin && ['chiyu', 'chienpao', 'tinglu', 'wochien'].includes(species.id)) return true;
+  return false;
+}
+
 function sample(raw: string): string {
   return raw.length > 1200 ? `${raw.slice(0, 1200)}\n... (${raw.length} bytes no total)` : raw;
 }
@@ -141,6 +155,24 @@ export async function loadMetaIndex(opts: LoadOptions = {}): Promise<MetaSnapsho
     if (entries.length < 10) {
       attempt.error = `so ${entries.length} entradas reconhecidas — provavelmente nao e o indice`;
       continue;
+    }
+
+    // Rede de seguranca: o indice pode nao estar recortado pela regulation
+    // vigente. Se vier Pokemon de um grupo banido, e sinal de que estamos
+    // olhando um recorte errado — removemos e avisamos, em vez de deixar a
+    // analise inteira apoiada num roster que nao existe no jogo.
+    const ilegais = entries.filter((e) => violatesBans(e.id));
+    if (ilegais.length) {
+      const nomes = ilegais.slice(0, 5).map((e) => e.name).join(', ');
+      diagnostics.warnings.push(
+        `O indice trouxe ${ilegais.length} Pokemon de grupos banidos em ${activeRegulation().label} ` +
+          `(${nomes}${ilegais.length > 5 ? ', ...' : ''}). Foram removidos, mas isso sugere que este ` +
+          `endpoint nao esta recortado pela regulation atual.`,
+      );
+      for (const bad of ilegais) {
+        const idx = entries.indexOf(bad);
+        if (idx >= 0) entries.splice(idx, 1);
+      }
     }
 
     // Sem usage nenhum o ranking vira ordem de chegada; avisamos em vez de fingir.
