@@ -10,6 +10,7 @@ import { validateTeam } from '../engine/validate';
 import { computeCoverage } from '../engine/coverage';
 import { exportTeam, importTeam } from '../lib/paste';
 import SetEditor from '../components/SetEditor';
+import TeamGrid from '../components/TeamGrid';
 import { DefensiveBlock, OffensiveBlock } from '../components/CoverageBlock';
 import { Button, Card, Empty, Picker, Pill, Section, Sprite, TypeBadge } from '../components/ui';
 import { spreadRemaining } from '../data/stats';
@@ -23,13 +24,16 @@ export default function TeamPage() {
   const status = useMetaStore((s) => s.status);
   const reg = activeRegulation();
 
-  const [openUid, setOpenUid] = useState<string | null>(null);
+  const [selecionado, setSelecionado] = useState<string | null>(null);
+  const [editando, setEditando] = useState(false);
   const [pasteOpen, setPasteOpen] = useState(false);
   const [pasteText, setPasteText] = useState('');
   const [pasteWarnings, setPasteWarnings] = useState<string[]>([]);
   const [adicionando, setAdicionando] = useState(false);
+  const [abrirPicker, setAbrirPicker] = useState(false);
 
   const membros = team.members.filter((m) => m.species);
+  const membroSelecionado = membros.find((m) => m.uid === selecionado) ?? null;
   const issues = useMemo(() => validateTeam(team.members, reg), [team.members, reg]);
   const cobertura = useMemo(() => computeCoverage(team.members), [team.members]);
   const erros = issues.filter((i) => i.level === 'erro');
@@ -127,60 +131,88 @@ export default function TeamPage() {
           </Card>
         )}
 
-        {membros.length < reg.teamSize && (
-          <Picker
-            label="Adicionar Pokemon"
-            value=""
-            options={roster.options}
-            onChange={(v) => void adicionar(v)}
-            placeholder={
-              adicionando
-                ? 'Montando o set do ladder...'
-                : status === 'carregando'
-                  ? 'Carregando roster...'
-                  : roster.confirmed
-                    ? `${roster.total} legais em ${reg.label}`
-                    : `${roster.total} (legalidade nao confirmada)`
-            }
-          />
+      </Section>
+
+      <section className="mb-5">
+        <TeamGrid
+          membros={membros}
+          selecionado={selecionado}
+          tamanhoMaximo={reg.teamSize}
+          onSelecionar={(uid) => {
+            setSelecionado(uid === selecionado ? null : uid);
+            setEditando(false);
+          }}
+          onAdicionar={() => setAbrirPicker(true)}
+        />
+
+        {abrirPicker && (
+          <div className="mt-2">
+            <Picker
+              label="Adicionar Pokemon"
+              value=""
+              options={roster.options}
+              onChange={(v) => {
+                setAbrirPicker(false);
+                void adicionar(v);
+              }}
+              placeholder={
+                adicionando
+                  ? 'Montando o set do ladder...'
+                  : status === 'carregando'
+                    ? 'Carregando roster...'
+                    : roster.confirmed
+                      ? `${roster.total} legais em ${reg.label}`
+                      : `${roster.total} (legalidade nao confirmada)`
+              }
+              abrirAoMontar
+              onFechar={() => setAbrirPicker(false)}
+            />
+          </div>
         )}
+
         {!roster.confirmed && status !== 'carregando' && (
-          <p className="mt-1 text-[11px] text-warn">
+          <p className="mt-1.5 text-[11px] text-warn">
             Sem dados ao vivo: a lista e estimada pelas regras, nao e o roster oficial.
           </p>
         )}
-      </Section>
+      </section>
 
-      {!membros.length ? (
+      {membroSelecionado && !editando && (
+        <MemberCard
+          set={membroSelecionado}
+          onEditar={() => setEditando(true)}
+          onRemover={() => {
+            removeMember(membroSelecionado.uid);
+            setSelecionado(null);
+          }}
+        />
+      )}
+
+      {membroSelecionado && editando && (
+        <div className="mb-5">
+          <SetEditor
+            set={membroSelecionado}
+            onChange={(patch) => updateMember(membroSelecionado.uid, patch)}
+            onRemove={() => {
+              removeMember(membroSelecionado.uid);
+              setSelecionado(null);
+              setEditando(false);
+            }}
+          />
+          <button
+            onClick={() => setEditando(false)}
+            className="mt-1 w-full rounded-lg border border-ink-700 py-2.5 text-xs text-ink-300 transition active:scale-[0.99]"
+          >
+            Concluir
+          </button>
+        </div>
+      )}
+
+      {!membros.length && (
         <Empty
           title="Time vazio."
-          hint="Escolha o primeiro Pokemon acima. Ele entra com o set mais jogado do ladder e as tabelas de cobertura aparecem logo abaixo."
+          hint="Toque num slot para escolher o primeiro Pokemon. Ele entra com o set mais jogado do ladder."
         />
-      ) : (
-        <div className="mb-5 space-y-2">
-          {team.members.map((m) =>
-            openUid === m.uid ? (
-              <div key={m.uid}>
-                <SetEditor
-                  set={m}
-                  onChange={(patch) => updateMember(m.uid, patch)}
-                  onRemove={() => {
-                    removeMember(m.uid);
-                    setOpenUid(null);
-                  }}
-                />
-                <button
-                  onClick={() => setOpenUid(null)}
-                  className="mt-1 w-full rounded-lg border border-ink-700 py-2 text-xs text-ink-300 active:scale-[0.99]"
-                >
-                  Fechar
-                </button>
-              </div>
-            ) : (
-              <MemberCard key={m.uid} set={m} onOpen={() => setOpenUid(m.uid)} />
-            ),
-          )}
-        </div>
       )}
 
       {erros.length > 0 && (
@@ -228,7 +260,15 @@ export default function TeamPage() {
  * a informacao consultada o tempo todo durante a montagem, e mandar isso para
  * outra aba obrigava a ir e voltar a cada troca de Pokemon.
  */
-function MemberCard({ set, onOpen }: { set: ChampionsSet; onOpen: () => void }) {
+function MemberCard({
+  set,
+  onEditar,
+  onRemover,
+}: {
+  set: ChampionsSet;
+  onEditar: () => void;
+  onRemover: () => void;
+}) {
   const species = useMemo(() => battleSpecies(set), [set]);
   // Fraquezas, resistencias e imunidades saem do mesmo perfil defensivo.
   // Resistir e tao acionavel quanto sofrer — e o que decide quem entra em campo
@@ -254,10 +294,7 @@ function MemberCard({ set, onOpen }: { set: ChampionsSet; onOpen: () => void }) 
   const semGolpes = set.moves.length === 0;
 
   return (
-    <button
-      onClick={onOpen}
-      className="w-full rounded-xl border border-ink-700 bg-ink-850 p-3 text-left transition active:scale-[0.99] active:border-ink-600"
-    >
+    <div className="mb-5 rounded-xl border border-accent/40 bg-ink-850 p-3">
       <div className="flex items-start gap-3">
         <Sprite species={species} size={52} />
         <div className="min-w-0 flex-1">
@@ -275,7 +312,6 @@ function MemberCard({ set, onOpen }: { set: ChampionsSet; onOpen: () => void }) 
             {semGolpes ? 'sem golpes definidos' : set.moves.join(' / ')}
           </p>
         </div>
-        <span className="shrink-0 self-center text-ink-600">›</span>
       </div>
 
       {perfil && (perfil.fracas.length > 0 || perfil.resiste.length > 0 || perfil.imune.length > 0) && (
@@ -291,7 +327,16 @@ function MemberCard({ set, onOpen }: { set: ChampionsSet; onOpen: () => void }) 
           {spLivres} Stat Point{spLivres > 1 ? 's' : ''} ainda por distribuir
         </p>
       )}
-    </button>
+
+      <div className="mt-3 flex gap-2">
+        <Button variant="primary" className="flex-1" onClick={onEditar}>
+          Editar set
+        </Button>
+        <Button variant="danger" onClick={onRemover}>
+          Remover
+        </Button>
+      </div>
+    </div>
   );
 }
 

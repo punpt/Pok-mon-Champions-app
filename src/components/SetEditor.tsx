@@ -1,12 +1,12 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo } from 'react';
 import type { ChampionsSet } from '../data/set';
 import { battleSpecies, willMegaEvolve } from '../data/set';
-import { abilitiesOf, dex, getMove, getSpecies, learnsetOf, NATURES } from '../data/dex';
+import { abilitiesOf, dex, getMove, getSpecies, NATURES } from '../data/dex';
 import { legalItemsFor } from '../data/items';
-import { moveRelevance } from '../engine/presume';
 import { Link } from 'react-router-dom';
 import { Picker, Sprite, TypeBadge, Pill, Button, type Option } from './ui';
 import SpEditor from './SpEditor';
+import MoveSlot from './MoveSlot';
 import { STAT_IDS, STAT_LABEL } from '../data/stats';
 import { useMetaStore } from '../store/metaStore';
 
@@ -28,7 +28,6 @@ export default function SetEditor({
   onChange: (patch: Partial<ChampionsSet>) => void;
   onRemove: () => void;
 }) {
-  const [moves, setMoves] = useState<string[]>([]);
   const entry = useMetaStore((s) => s.entry(set.species));
   const enrich = useMetaStore((s) => s.enrich);
 
@@ -37,14 +36,7 @@ export default function SetEditor({
 
   useEffect(() => {
     if (!set.species) return;
-    let alive = true;
-    void learnsetOf(set.species).then((list) => {
-      if (alive) setMoves(list);
-    });
     void enrich(set.species);
-    return () => {
-      alive = false;
-    };
   }, [set.species, enrich]);
 
   const moveUsage = useMemo(() => {
@@ -55,39 +47,6 @@ export default function SetEditor({
     }
     return map;
   }, [entry]);
-
-  const moveOptions: Option[] = useMemo(
-    () =>
-      moves
-        .map((name) => {
-          const move = getMove(name)!;
-          const usage = moveUsage.get(move.name);
-          return {
-            option: {
-              value: move.name,
-              label: move.name,
-              hint:
-                `${move.type} · ${move.category}` +
-                (move.basePower ? ` · ${move.basePower} BP` : '') +
-                ((move.priority ?? 0) > 0 ? ` · prioridade +${move.priority}` : '') +
-                (usage !== undefined ? ` · ${(usage * 100).toFixed(0)}% do ladder` : ''),
-            } satisfies Option,
-            // Usage do ladder manda. Sem ele, ordenamos por relevancia
-            // competitiva — alfabetico faria rolar por Agility e Bite antes de
-            // chegar no golpe que se joga.
-            usage: usage ?? -1,
-            relevancia: moveRelevance(set.species, move.name, set.item),
-          };
-        })
-        .sort(
-          (a, b) =>
-            b.usage - a.usage ||
-            b.relevancia - a.relevancia ||
-            a.option.label.localeCompare(b.option.label),
-        )
-        .map((r) => r.option),
-    [moves, moveUsage, set.species, set.item],
-  );
 
   const itemOpts = useMemo(() => itemOptions(set.species), [set.species]);
 
@@ -171,23 +130,17 @@ export default function SetEditor({
         </p>
       )}
 
-      {!moveUsage.size && moveOptions.length > 0 && (
-        <p className="mb-2 rounded-lg border border-warn/25 bg-warn/10 px-2.5 py-1.5 text-[11px] leading-relaxed text-warn">
-          Sem dados de uso do ladder para este Pokemon. Os golpes estao ordenados por relevancia competitiva, nao pelo
-          que se joga de verdade. Ajustes › Movesets do ladder mostra o motivo.
-        </p>
-      )}
-
       <div className="mb-3 grid grid-cols-2 gap-2">
         {[0, 1, 2, 3].map((i) => (
-          <Picker
+          <MoveSlot
             key={i}
-            label={`Golpe ${i + 1}`}
-            value={set.moves[i] ?? ''}
-            options={moveOptions}
+            indice={i}
+            move={set.moves[i] ?? ''}
+            speciesId={set.species}
+            item={set.item}
+            outros={set.moves.filter((_, j) => j !== i)}
+            usage={moveUsage.get(set.moves[i] ?? '')}
             onChange={(v) => setMove(i, v)}
-            emptyLabel="Vazio"
-            placeholder={moveOptions.length ? 'Escolher...' : 'Carregando movepool...'}
           />
         ))}
       </div>

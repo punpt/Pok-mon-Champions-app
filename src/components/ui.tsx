@@ -43,23 +43,38 @@ export function TypeBadge({ type }: { type: TypeName | string }) {
   );
 }
 
-/** Sprite com fallback para a forma base quando a Mega nova ainda nao tem arte. */
+/**
+ * Sprite com dois niveis de fallback.
+ *
+ * Primeiro tenta a forma exata; se falhar, a forma base — Megas recentes nem
+ * sempre tem arte publicada. Se as duas falharem, entra um marcador neutro com
+ * a inicial. O alt fica vazio de proposito: com texto, o navegador desenha o
+ * nome em tamanho real no lugar da imagem quebrada e destroi o layout do card,
+ * que e exatamente o que acontece sem rede. O nome ja esta escrito ao lado.
+ */
 export function Sprite({ species, size = 48 }: { species: Specie | string | null; size?: number }) {
   const s = typeof species === 'string' ? getSpecies(species) : species;
-  const [failed, setFailed] = useState(false);
+  const [tentativa, setTentativa] = useState<0 | 1 | 2>(0);
+
+  useEffect(() => {
+    setTentativa(0);
+  }, [s?.id]);
+
   const src = useMemo(() => {
-    if (!s) return null;
-    const id = failed ? baseFormOf(s).id : s.id;
+    if (!s || tentativa === 2) return null;
+    const id = tentativa === 0 ? s.id : baseFormOf(s).id;
     return `https://play.pokemonshowdown.com/sprites/gen5/${id}.png`;
-  }, [s, failed]);
+  }, [s, tentativa]);
 
   if (!s || !src) {
     return (
       <div
-        className="flex items-center justify-center rounded bg-ink-800 text-ink-600"
-        style={{ width: size, height: size }}
+        className="flex shrink-0 items-center justify-center rounded-lg bg-ink-800 font-semibold text-ink-600"
+        style={{ width: size, height: size, fontSize: size * 0.4 }}
+        title={s?.name}
+        aria-hidden="true"
       >
-        ?
+        {s ? s.name.charAt(0) : '?'}
       </div>
     );
   }
@@ -67,11 +82,12 @@ export function Sprite({ species, size = 48 }: { species: Specie | string | null
   return (
     <img
       src={src}
-      alt={s.name}
+      alt=""
       width={size}
       height={size}
       loading="lazy"
-      onError={() => setFailed(true)}
+      onError={() => setTentativa((t) => (t === 0 ? 1 : 2))}
+      className="shrink-0"
       style={{ width: size, height: size, imageRendering: 'pixelated' }}
     />
   );
@@ -156,6 +172,8 @@ export function Picker({
   onChange,
   placeholder = 'Escolher...',
   emptyLabel,
+  abrirAoMontar = false,
+  onFechar,
 }: {
   label: string;
   value: string;
@@ -163,8 +181,11 @@ export function Picker({
   onChange: (value: string) => void;
   placeholder?: string;
   emptyLabel?: string;
+  /** Ja abre a folha ao montar, para quem dispara a partir de outro controle. */
+  abrirAoMontar?: boolean;
+  onFechar?: () => void;
 }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(abrirAoMontar);
   const [query, setQuery] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -178,7 +199,7 @@ export function Picker({
     document.body.style.overflow = 'hidden';
 
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setOpen(false);
+      if (e.key === 'Escape') fechar();
     };
     document.addEventListener('keydown', onKey);
 
@@ -202,6 +223,11 @@ export function Picker({
 
   const current = options.find((o) => o.value === value);
 
+  const fechar = () => {
+    setOpen(false);
+    onFechar?.();
+  };
+
   return (
     <>
       <button
@@ -218,7 +244,7 @@ export function Picker({
       {open && (
         <div
           className="fixed inset-0 z-50 flex flex-col bg-ink-950/80 backdrop-blur-sm"
-          onClick={() => setOpen(false)}
+          onClick={fechar}
           role="dialog"
           aria-modal="true"
           aria-label={label}
@@ -231,7 +257,7 @@ export function Picker({
               <div className="mb-2 flex items-center justify-between gap-2">
                 <span className="min-w-0 truncate text-xs tracking-wide text-ink-400 uppercase">{label}</span>
                 <button
-                  onClick={() => setOpen(false)}
+                  onClick={fechar}
                   className="-my-2 shrink-0 px-2 py-2 text-sm text-ink-300"
                   aria-label="Fechar"
                 >
@@ -287,7 +313,7 @@ export function Picker({
                       alt=""
                       width={32}
                       height={32}
-                      style={{ imageRendering: 'pixelated' }}
+                      style={{ imageRendering: 'pixelated', minWidth: 32 }}
                       loading="lazy"
                     />
                   )}

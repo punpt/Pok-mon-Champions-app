@@ -6,10 +6,11 @@ import { battleSpecies, type ChampionsSet } from '../data/set';
 import type { SpSpread } from '../data/stats';
 import { NATURES } from '../data/dex';
 import SpEditor from '../components/SpEditor';
-import { getMove, learnsetOf } from '../data/dex';
-import { presumedSetCached, moveRelevance } from '../engine/presume';
+import MoveSlot from '../components/MoveSlot';
+import { getMove } from '../data/dex';
+import { presumedSetCached } from '../engine/presume';
 import { calcDamage, effectiveSpeed, type FieldOptions } from '../engine/calc';
-import { Card, Empty, Picker, Pill, Section, UsageBar, type Option } from '../components/ui';
+import { Card, Empty, Picker, Pill, Section, UsageBar } from '../components/ui';
 import { useMetaStore as useMeta } from '../store/metaStore';
 
 export default function CalcPage() {
@@ -200,7 +201,7 @@ export default function CalcPage() {
               ) : undefined
             }
           >
-            <MoveSlots speciesId={attacker!.species} moves={atkFinal.moves} onChange={setAtkMoves} />
+            <SlotsDeGolpe set={atkFinal} onChange={setAtkMoves} />
           </Section>
 
           <Section title={`${battleSpecies(atkFinal)?.name} → ${battleSpecies(defFinal)?.name}`}>
@@ -232,7 +233,7 @@ export default function CalcPage() {
               ) : undefined
             }
           >
-            <MoveSlots speciesId={defender!.species} moves={defFinal.moves} onChange={setDefMoves} />
+            <SlotsDeGolpe set={defFinal} onChange={setDefMoves} />
           </Section>
 
           <Section title={`${battleSpecies(defFinal)?.name} → ${battleSpecies(atkFinal)?.name}`}>
@@ -317,108 +318,6 @@ function BoostRow({ label, value, onChange }: { label: string; value: number; on
             {b > 0 ? `+${b}` : b}
           </button>
         ))}
-      </div>
-    </div>
-  );
-}
-
-
-/**
- * Quatro slots de golpe alimentados pelo movepool completo, ordenados por
- * usage no ladder.
- *
- * De proposito nao ficamos presos aos quatro mais jogados: boa parte do
- * formato troca de movepool conforme o matchup, e o golpe que decide um
- * confronto costuma ser justamente o que sai da lista padrao.
- */
-function MoveSlots({
-  speciesId,
-  moves,
-  onChange,
-}: {
-  speciesId: string;
-  moves: string[];
-  onChange: (moves: string[]) => void;
-}) {
-  const [pool, setPool] = useState<string[]>([]);
-  const entry = useMeta((s) => s.entry(speciesId));
-
-  useEffect(() => {
-    let alive = true;
-    void learnsetOf(speciesId).then((list) => {
-      if (alive) setPool(list);
-    });
-    return () => {
-      alive = false;
-    };
-  }, [speciesId]);
-
-  const usage = useMemo(() => {
-    const map = new Map<string, number>();
-    for (const m of entry?.moves ?? []) {
-      const move = getMove(m.name);
-      if (move) map.set(move.name, m.usage);
-    }
-    return map;
-  }, [entry]);
-
-  const options: Option[] = useMemo(
-    () =>
-      pool
-        .map((name) => getMove(name)!)
-        .filter(Boolean)
-        .map((move) => {
-          const u = usage.get(move.name);
-          return {
-            option: {
-              value: move.name,
-              label: move.name,
-              hint:
-                `${move.type} · ${move.category}` +
-                (move.basePower ? ` · ${move.basePower} BP` : '') +
-                ((move.priority ?? 0) > 0 ? ` · prioridade +${move.priority}` : '') +
-                (u !== undefined ? ` · ${(u * 100).toFixed(0)}% do ladder` : ''),
-            } satisfies Option,
-            usage: u ?? -1,
-            relevancia: moveRelevance(speciesId, move.name),
-          };
-        })
-        .sort(
-          (a, b) =>
-            b.usage - a.usage ||
-            b.relevancia - a.relevancia ||
-            a.option.label.localeCompare(b.option.label),
-        )
-        .map((r) => r.option),
-    [pool, usage, speciesId],
-  );
-
-  const setSlot = (i: number, value: string) => {
-    const next = [...moves];
-    if (!value) next.splice(i, 1);
-    else next[i] = value;
-    onChange(next.filter(Boolean).slice(0, 4));
-  };
-
-  return (
-    <div>
-      {!usage.size && options.length > 0 && (
-        <p className="mb-2 rounded-lg border border-warn/25 bg-warn/10 px-2.5 py-1.5 text-[11px] leading-relaxed text-warn">
-          Sem dados de uso do ladder para este Pokemon — a ordem e por relevancia competitiva.
-        </p>
-      )}
-      <div className="grid grid-cols-2 gap-2">
-      {[0, 1, 2, 3].map((i) => (
-        <Picker
-          key={i}
-          label={`Golpe ${i + 1}`}
-          value={moves[i] ?? ''}
-          options={options}
-          onChange={(v) => setSlot(i, v)}
-          emptyLabel="Vazio"
-          placeholder={options.length ? 'Escolher...' : 'Carregando movepool...'}
-        />
-      ))}
       </div>
     </div>
   );
@@ -511,6 +410,44 @@ function Sobrevivencia({ recebido }: { recebido: NonNullable<ReturnType<typeof c
       }`}
     >
       {texto}
+    </div>
+  );
+}
+
+
+/** Os quatro slots de golpe de um lado da calculadora. */
+function SlotsDeGolpe({ set, onChange }: { set: ChampionsSet; onChange: (moves: string[]) => void }) {
+  const entry = useMeta((s) => s.entry(set.species));
+  const usage = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const mv of entry?.moves ?? []) {
+      const move = getMove(mv.name);
+      if (move) m.set(move.name, mv.usage);
+    }
+    return m;
+  }, [entry]);
+
+  const trocar = (i: number, valor: string) => {
+    const next = [...set.moves];
+    if (!valor) next.splice(i, 1);
+    else next[i] = valor;
+    onChange(next.filter(Boolean).slice(0, 4));
+  };
+
+  return (
+    <div className="grid grid-cols-2 gap-2">
+      {[0, 1, 2, 3].map((i) => (
+        <MoveSlot
+          key={i}
+          indice={i}
+          move={set.moves[i] ?? ''}
+          speciesId={set.species}
+          item={set.item}
+          outros={set.moves.filter((_, j) => j !== i)}
+          usage={usage.get(set.moves[i] ?? '')}
+          onChange={(v) => trocar(i, v)}
+        />
+      ))}
     </div>
   );
 }

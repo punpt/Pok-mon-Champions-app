@@ -6,12 +6,12 @@ import {
   SP_MAX_PER_STAT,
   SP_TOTAL,
   STAT_IDS,
-  STAT_LABEL,
   spreadTotal,
   type SpSpread,
   type StatID,
 } from '../data/stats';
 import { baseStatsOf, natureByName } from '../data/dex';
+import StatRow from './StatRow';
 
 /**
  * Editor de Stat Points.
@@ -43,9 +43,8 @@ export default function SpEditor({
   const setStat = (id: StatID, raw: number) => {
     const value = Math.max(0, Math.min(SP_MAX_PER_STAT, Math.round(raw)));
     const others = STAT_IDS.reduce((s, k) => (k === id ? s : s + set.sp[k]), 0);
-    // Nunca deixamos passar de 66 no total: o slider para onde o pool acaba.
-    const capped = Math.min(value, SP_TOTAL - others);
-    onChange({ ...set.sp, [id]: capped });
+    // Nunca deixamos passar de 66 no total: o controle para onde o pool acaba.
+    onChange({ ...set.sp, [id]: Math.min(value, SP_TOTAL - others) });
   };
 
   if (!species) return null;
@@ -59,49 +58,19 @@ export default function SpEditor({
         </span>
       </div>
 
-      <div className="space-y-2">
-        {STAT_IDS.map((id) => {
-          const sp = set.sp[id];
-          const boosted = nature.plus === id;
-          const hindered = nature.minus === id;
-          return (
-            <div key={id} className="flex items-center gap-2">
-              <span
-                className={`w-9 shrink-0 text-xs font-semibold ${
-                  boosted ? 'text-good' : hindered ? 'text-danger' : 'text-ink-300'
-                }`}
-              >
-                {STAT_LABEL[id]}
-                {boosted ? '+' : hindered ? '−' : ''}
-              </span>
-
-              <input
-                type="range"
-                min={0}
-                max={SP_MAX_PER_STAT}
-                value={sp}
-                onChange={(e) => setStat(id, Number(e.target.value))}
-                className="min-w-0 flex-1"
-              />
-
-              <input
-                type="number"
-                min={0}
-                max={SP_MAX_PER_STAT}
-                value={sp}
-                onChange={(e) => setStat(id, Number(e.target.value))}
-                className="w-12 shrink-0 rounded border border-ink-700 bg-ink-850 px-1 py-0.5 text-center text-xs outline-none focus:border-accent"
-              />
-
-              <span className="w-11 shrink-0 text-right text-xs tabular-nums text-ink-100">
-                {finalStats[id]}
-              </span>
-              <span className="w-8 shrink-0 text-right text-[10px] tabular-nums text-ink-600">
-                {base[id]}
-              </span>
-            </div>
-          );
-        })}
+      <div>
+        {STAT_IDS.map((id) => (
+          <StatRow
+            key={id}
+            stat={id}
+            sp={set.sp[id]}
+            finalValue={finalStats[id]}
+            baseValue={base[id]}
+            natureMod={nature.plus === id ? 1.1 : nature.minus === id ? 0.9 : 1}
+            disponivel={remaining}
+            onChange={(v) => setStat(id, v)}
+          />
+        ))}
       </div>
 
       <div className="mt-2 flex flex-wrap gap-1.5">
