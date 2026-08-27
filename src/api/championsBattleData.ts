@@ -11,7 +11,16 @@
  */
 
 import { fetchJson } from './client';
-import { isObject, pick, pickNumber, pickString, toMetaSpreads, toWeightedNames } from './normalize';
+import {
+  decideUsageScale,
+  isObject,
+  pick,
+  pickNumber,
+  pickString,
+  toMetaSpreads,
+  toWeightedNames,
+  type UsageScale,
+} from './normalize';
 import type { MetaEntry, MetaSnapshot, SourceDiagnostics } from './types';
 import { MetaFetchError } from './types';
 import { normalizeId, getSpecies } from '../data/dex';
@@ -109,6 +118,8 @@ export interface LoadOptions {
   signal?: AbortSignal;
   /** Caminho fixo de indice, quando voce ja sabe qual funciona. */
   indexPath?: string | null;
+  /** Como interpretar os numeros de usage da fonte. */
+  usageScale?: UsageScale;
 }
 
 /** Busca o indice de meta ao vivo. Lanca MetaFetchError com diagnostico se falhar. */
@@ -185,6 +196,29 @@ export async function loadMetaIndex(opts: LoadOptions = {}): Promise<MetaSnapsho
       });
     }
 
+    // A fonte pode publicar usage por time (~600% somados) ou por slot (~100%).
+    // Convertemos para a escala por time, que e a que o jogador reconhece.
+    const reg = activeRegulation();
+    const escala = decideUsageScale(
+      entries.map((e) => e.usage),
+      reg.teamSize,
+      opts.usageScale ?? 'auto',
+    );
+    if (escala.factor !== 1) {
+      for (const e of entries) e.usage = Math.min(1, e.usage * escala.factor);
+    }
+    diagnostics.usage = {
+      mode: escala.mode,
+      factor: escala.factor,
+      rawSum: escala.rawSum,
+      automatic: escala.automatic,
+      amostra: entries
+        .slice()
+        .sort((a, b) => b.usage - a.usage)
+        .slice(0, 5)
+        .map((e) => `${e.name} ${(e.usage * 100).toFixed(1)}%`),
+    };
+
     entries.sort((a, b) => b.usage - a.usage);
     entries.forEach((e, i) => (e.rank = i + 1));
 
@@ -198,6 +232,7 @@ export async function loadMetaIndex(opts: LoadOptions = {}): Promise<MetaSnapsho
       source: baseUrl,
       fetchedAt: Date.now(),
       entries,
+      diagnostics,
     };
   }
 

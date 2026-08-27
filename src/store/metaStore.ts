@@ -8,17 +8,36 @@
 
 import { create } from 'zustand';
 import { loadMetaDetail, loadMetaIndex, DEFAULT_BASE_URL } from '../api/championsBattleData';
-import { readCachedSnapshot, writeCachedSnapshot, clearCachedSnapshot } from '../api/cache';
+import {
+  readCachedSnapshot,
+  writeCachedSnapshot,
+  clearCachedSnapshot,
+  readCachedDetails,
+  writeCachedDetails,
+} from '../api/cache';
+import { mapWithConcurrency } from '../lib/pool';
 import { MetaFetchError, type MetaEntry, type MetaSnapshot, type SourceDiagnostics } from '../api/types';
+import type { UsageScale } from '../api/normalize';
 import { activeRegulation } from '../data/rules';
+import { clearMatchupCache } from '../engine/threats';
 
 const BASE_URL_KEY = 'champions-lab:baseUrl';
+const USAGE_SCALE_KEY = 'champions-lab:usageScale';
 
 function storedBaseUrl(): string {
   try {
     return localStorage.getItem(BASE_URL_KEY) || DEFAULT_BASE_URL;
   } catch {
     return DEFAULT_BASE_URL;
+  }
+}
+
+function storedUsageScale(): UsageScale {
+  try {
+    const v = localStorage.getItem(USAGE_SCALE_KEY);
+    return v === 'times' || v === 'slots' ? v : 'auto';
+  } catch {
+    return 'auto';
   }
 }
 
@@ -32,6 +51,8 @@ interface MetaState {
   error: string | null;
   diagnostics: SourceDiagnostics | null;
   baseUrl: string;
+  /** Como interpretar o usage da fonte. */
+  usageScale: UsageScale;
   /** IDs cujo detalhe ja foi buscado. */
   enriched: Set<string>;
   /**
@@ -44,6 +65,7 @@ interface MetaState {
   enriching: boolean;
 
   setBaseUrl(url: string): void;
+  setUsageScale(scale: UsageScale): void;
   load(force?: boolean): Promise<void>;
   enrich(id: string): Promise<void>;
   enrichTop(count: number): Promise<void>;
@@ -65,6 +87,32 @@ function mergeDetail(entry: MetaEntry, id: string, detail: Partial<MetaEntry>): 
   };
 }
 
+type SetState = (
+  partial: Partial<MetaState> | ((prev: MetaState) => Partial<MetaState>),
+) => void;
+
+/** Aplica um lote de detalhes numa unica atualizacao de estado. */
+function aplicarDetalhes(
+  set: SetState,
+  detalhes: Record<string, Partial<MetaEntry>>,
+  visitados: string[],
+): void {
+  set((prev) => {
+    const enriched = new Set(prev.enriched);
+    for (const id of visitados) enriched.add(id);
+    if (!prev.snapshot || !Object.keys(detalhes).length) return { enriched };
+    const entries = prev.snapshot.entries.map((e) => {
+      const detail = detalhes[e.id];
+      return detail ? mergeDetail(e, e.id, detail) : e;
+    });
+    return {
+      snapshot: { ...prev.snapshot, entries },
+      enriched,
+      revision: prev.revision + 1,
+    };
+  });
+}
+
 export const useMetaStore = create<MetaState>((set, get) => ({
   status: 'ocioso',
   snapshot: null,
@@ -72,6 +120,7 @@ export const useMetaStore = create<MetaState>((set, get) => ({
   error: null,
   diagnostics: null,
   baseUrl: storedBaseUrl(),
+  usageScale: storedUsageScale(),
   enriched: new Set<string>(),
   revision: 0,
   enriching: false,
@@ -86,6 +135,15 @@ export const useMetaStore = create<MetaState>((set, get) => ({
     set({ baseUrl: clean });
   },
 
+  setUsageScale(scale) {
+    try {
+      localStorage.setItem(USAGE_SCALE_KEY, scale);
+    } catch {
+      /* modo privativo: segue so em memoria */
+    }
+    set({ usageScale: scale });
+  },
+
   async load(force = false) {
     const { status, snapshot } = get();
     if (status === 'carregando') return;
@@ -95,14 +153,20 @@ export const useMetaStore = create<MetaState>((set, get) => ({
     const format = activeRegulation().apiFormat;
 
     try {
-      const live = await loadMetaIndex({ baseUrl: get().baseUrl, format });
+      const live = await loadMetaIndex({
+        baseUrl: get().baseUrl,
+        format,
+        usageScale: get().usageScale,
+      });
       await writeCachedSnapshot(live);
+      // Recorte novo invalida qualquer confronto memorizado do anterior.
+      clearMatchupCache();
       set((prev) => ({
         snapshot: live,
         status: 'ao-vivo',
         fromCache: false,
         error: null,
-        diagnostics: null,
+        diagnostics: live.diagnostics ?? null,
         enriched: new Set<string>(),
         revision: prev.revision + 1,
       }));
@@ -152,44 +216,48 @@ export const useMetaStore = create<MetaState>((set, get) => ({
     const { snapshot, enriching } = get();
     if (!snapshot || enriching) return;
 
-    const alvos = snapshot.entries
-      .slice(0, count)
-      .map((e) => e.id)
-      .filter((id) => !get().enriched.has(id));
-    if (!alvos.length) return;
+    const candidatos = snapshot.entries.slice(0, count).map((e) => e.id);
+    const faltando = candidatos.filter((id) => !get().enriched.has(id));
+    if (!faltando.length) return;
 
     set({ enriching: true });
     const format = snapshot.format;
+    const label = snapshot.label;
     const baseUrl = get().baseUrl;
-    const detalhes = new Map<string, Partial<MetaEntry>>();
 
     try {
-      // Sequencial de proposito: uma rajada de dezenas de requests derruba a
-      // rede do celular. Os resultados sao acumulados e aplicados de uma vez
-      // so — aplicar um a um faria as telas de ameacas e sinergia recomecarem
-      // o calculo a cada detalhe que chega.
-      for (const id of alvos) {
+      // 1. O que ja esta em disco entra na hora, sem tocar na rede.
+      const doCache = await readCachedDetails(format, label);
+      const daRede = faltando.filter((id) => !doCache[id]);
+      const aplicarDoCache = Object.fromEntries(
+        faltando.filter((id) => doCache[id]).map((id) => [id, doCache[id]]),
+      );
+
+      if (Object.keys(aplicarDoCache).length) {
+        aplicarDetalhes(set, aplicarDoCache, Object.keys(aplicarDoCache));
+      }
+
+      if (!daRede.length) return;
+
+      // 2. O resto vai em paralelo limitado. Em fila, 30 detalhes custam 30
+      // latencias somadas — foi o que fazia as abas de Ameacas e Sinergia
+      // demorarem tanto para ficarem completas.
+      const novos: Record<string, Partial<MetaEntry>> = {};
+      await mapWithConcurrency(daRede, 6, async (id) => {
         const detail = await loadMetaDetail(id, { baseUrl, format });
-        if (detail) detalhes.set(id, detail);
+        if (detail) novos[id] = detail;
+        return detail;
+      });
+
+      // A tela atualiza primeiro; a gravacao vem logo em seguida e e aguardada.
+      // Como promessa solta, ela nao completava quando o app era fechado logo
+      // apos abrir, e o cache nunca chegava a existir.
+      aplicarDetalhes(set, novos, daRede);
+      if (Object.keys(novos).length) {
+        await writeCachedDetails(format, label, novos);
       }
     } finally {
-      set((prev) => {
-        const enriched = new Set(prev.enriched);
-        for (const id of alvos) enriched.add(id);
-        if (!prev.snapshot || !detalhes.size) {
-          return { enriched, enriching: false };
-        }
-        const entries = prev.snapshot.entries.map((e) => {
-          const detail = detalhes.get(e.id);
-          return detail ? mergeDetail(e, e.id, detail) : e;
-        });
-        return {
-          snapshot: { ...prev.snapshot, entries },
-          enriched,
-          enriching: false,
-          revision: prev.revision + 1,
-        };
-      });
+      set({ enriching: false });
     }
   },
 

@@ -3,10 +3,11 @@ import { useTeamStore } from '../store/teamStore';
 import { useMetaStore } from '../store/metaStore';
 import { useRoster } from '../lib/roster';
 import { battleSpecies, type ChampionsSet } from '../data/set';
-import { getMove } from '../data/dex';
+import { getMove, learnsetOf } from '../data/dex';
 import { presumedSetCached } from '../engine/presume';
 import { calcDamage, effectiveSpeed, type FieldOptions } from '../engine/calc';
-import { Card, Empty, Picker, Pill, Section, UsageBar } from '../components/ui';
+import { Card, Empty, Picker, Pill, Section, UsageBar, type Option } from '../components/ui';
+import { useMetaStore as useMeta } from '../store/metaStore';
 
 export default function CalcPage() {
   const team = useTeamStore((s) => s.teams.find((t) => t.id === s.activeId) ?? s.teams[0]);
@@ -22,6 +23,9 @@ export default function CalcPage() {
   const [field, setField] = useState<FieldOptions>({});
   const [atkBoost, setAtkBoost] = useState(0);
   const [defBoost, setDefBoost] = useState(0);
+  // Golpes editados a mao. Enquanto vazio, valem os do set do ladder.
+  const [atkMoves, setAtkMoves] = useState<string[] | null>(null);
+  const [defMoves, setDefMoves] = useState<string[] | null>(null);
 
   // Um lado pode ser o seu set do time; o outro, o set mais jogado do ladder.
   const resolve = async (id: string, setter: (s: ChampionsSet | null) => void) => {
@@ -34,18 +38,40 @@ export default function CalcPage() {
   };
 
   useEffect(() => {
+    setAtkMoves(null);
     void resolve(attackerId, setAttacker);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [attackerId, snapshot, team.members]);
 
   useEffect(() => {
+    setDefMoves(null);
     void resolve(defenderId, setDefender);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [defenderId, snapshot, team.members]);
 
+  // Um lado com golpes editados vira um set proprio, sem mexer no time salvo.
+  const atkFinal = useMemo(
+    () => (attacker && atkMoves ? { ...attacker, moves: atkMoves } : attacker),
+    [attacker, atkMoves],
+  );
+  const defFinal = useMemo(
+    () => (defender && defMoves ? { ...defender, moves: defMoves } : defender),
+    [defender, defMoves],
+  );
+
   const results = useMemo(() => {
+    const attacker = atkFinal;
+    const defender = defFinal;
     if (!attacker || !defender) return null;
-    const forward = attacker.moves
+    // Golpes de status nao entram na lista de dano: Protect e afins so
+    // poluiriam a leitura com barras zeradas.
+    const atacantes = (set: typeof attacker) =>
+      set.moves.filter((m) => {
+        const move = getMove(m);
+        return Boolean(move) && move!.category !== 'Status';
+      });
+
+    const forward = atacantes(attacker)
       .map((m) =>
         calcDamage({
           attacker,
@@ -59,7 +85,7 @@ export default function CalcPage() {
       .filter((r): r is NonNullable<typeof r> => r !== null)
       .sort((a, b) => b.percent[1] - a.percent[1]);
 
-    const back = defender.moves
+    const back = atacantes(defender)
       .map((m) =>
         calcDamage({
           attacker: defender,
@@ -74,15 +100,15 @@ export default function CalcPage() {
       .sort((a, b) => b.percent[1] - a.percent[1]);
 
     return { forward, back };
-  }, [attacker, defender, field, atkBoost, defBoost]);
+  }, [atkFinal, defFinal, field, atkBoost, defBoost]);
 
   const speeds = useMemo(() => {
-    if (!attacker || !defender) return null;
+    if (!atkFinal || !defFinal) return null;
     return {
-      a: effectiveSpeed(attacker, field),
-      d: effectiveSpeed(defender, { ...field, attackerTailwind: field.defenderTailwind }),
+      a: effectiveSpeed(atkFinal, field),
+      d: effectiveSpeed(defFinal, { ...field, attackerTailwind: field.defenderTailwind }),
     };
-  }, [attacker, defender, field]);
+  }, [atkFinal, defFinal, field]);
 
   return (
     <div>
@@ -135,29 +161,64 @@ export default function CalcPage() {
         </div>
       </Section>
 
-      {!attacker || !defender ? (
+      {!atkFinal || !defFinal ? (
         <Empty title="Escolha os dois lados." hint="Pokemon do seu time entram com o set que voce montou; os demais, com o set mais jogado." />
       ) : (
         <>
           {speeds && (
             <Card className="mb-4 flex items-center justify-between p-2.5 text-xs">
               <span className="text-ink-300">
-                {battleSpecies(attacker)?.name}: <strong className="text-ink-100">{speeds.a}</strong> Speed
+                {battleSpecies(atkFinal)?.name}: <strong className="text-ink-100">{speeds.a}</strong> Speed
               </span>
               <Pill tone={speeds.a > speeds.d ? 'good' : speeds.a === speeds.d ? 'warn' : 'danger'}>
                 {speeds.a > speeds.d ? 'age primeiro' : speeds.a === speeds.d ? 'speed tie' : 'age depois'}
               </Pill>
               <span className="text-ink-300">
-                {battleSpecies(defender)?.name}: <strong className="text-ink-100">{speeds.d}</strong> Speed
+                {battleSpecies(defFinal)?.name}: <strong className="text-ink-100">{speeds.d}</strong> Speed
               </span>
             </Card>
           )}
 
-          <Section title={`${battleSpecies(attacker)?.name} → ${battleSpecies(defender)?.name}`}>
+          <Section
+            title={`Golpes de ${battleSpecies(atkFinal)?.name}`}
+            subtitle="Comeca com os mais jogados do ladder; troque por qualquer um do movepool"
+            right={
+              atkMoves ? (
+                <button onClick={() => setAtkMoves(null)} className="text-[11px] text-accent">
+                  Voltar ao padrao
+                </button>
+              ) : undefined
+            }
+          >
+            <MoveSlots
+              speciesId={attacker!.species}
+              moves={atkFinal.moves}
+              onChange={setAtkMoves}
+            />
+          </Section>
+
+          <Section title={`${battleSpecies(atkFinal)?.name} → ${battleSpecies(defFinal)?.name}`}>
             <DamageList results={results?.forward ?? []} />
           </Section>
 
-          <Section title={`${battleSpecies(defender)?.name} → ${battleSpecies(attacker)?.name}`}>
+          <Section
+            title={`Golpes de ${battleSpecies(defFinal)?.name}`}
+            right={
+              defMoves ? (
+                <button onClick={() => setDefMoves(null)} className="text-[11px] text-accent">
+                  Voltar ao padrao
+                </button>
+              ) : undefined
+            }
+          >
+            <MoveSlots
+              speciesId={defender!.species}
+              moves={defFinal.moves}
+              onChange={setDefMoves}
+            />
+          </Section>
+
+          <Section title={`${battleSpecies(defFinal)?.name} → ${battleSpecies(atkFinal)?.name}`}>
             <DamageList results={results?.back ?? []} />
           </Section>
         </>
@@ -226,6 +287,93 @@ function BoostRow({ label, value, onChange }: { label: string; value: number; on
           </button>
         ))}
       </div>
+    </div>
+  );
+}
+
+
+/**
+ * Quatro slots de golpe alimentados pelo movepool completo, ordenados por
+ * usage no ladder.
+ *
+ * De proposito nao ficamos presos aos quatro mais jogados: boa parte do
+ * formato troca de movepool conforme o matchup, e o golpe que decide um
+ * confronto costuma ser justamente o que sai da lista padrao.
+ */
+function MoveSlots({
+  speciesId,
+  moves,
+  onChange,
+}: {
+  speciesId: string;
+  moves: string[];
+  onChange: (moves: string[]) => void;
+}) {
+  const [pool, setPool] = useState<string[]>([]);
+  const entry = useMeta((s) => s.entry(speciesId));
+
+  useEffect(() => {
+    let alive = true;
+    void learnsetOf(speciesId).then((list) => {
+      if (alive) setPool(list);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [speciesId]);
+
+  const usage = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const m of entry?.moves ?? []) {
+      const move = getMove(m.name);
+      if (move) map.set(move.name, m.usage);
+    }
+    return map;
+  }, [entry]);
+
+  const options: Option[] = useMemo(() => {
+    const rows = pool
+      .map((name) => getMove(name)!)
+      .filter(Boolean)
+      .map((move) => {
+        const u = usage.get(move.name);
+        return {
+          option: {
+            value: move.name,
+            label: move.name,
+            hint:
+              `${move.type} · ${move.category}` +
+              (move.basePower ? ` · ${move.basePower} BP` : '') +
+              ((move.priority ?? 0) > 0 ? ` · prioridade +${move.priority}` : '') +
+              (u !== undefined ? ` · ${(u * 100).toFixed(0)}% do ladder` : ''),
+          } satisfies Option,
+          rank: u ?? -1,
+        };
+      })
+      .sort((a, b) => b.rank - a.rank || a.option.label.localeCompare(b.option.label));
+    return rows.map((r) => r.option);
+  }, [pool, usage]);
+
+  const setSlot = (i: number, value: string) => {
+    const next = [...moves];
+    if (!value) next.splice(i, 1);
+    else next[i] = value;
+    onChange(next.filter(Boolean).slice(0, 4));
+  };
+
+  return (
+    <div className="grid grid-cols-2 gap-2">
+      {[0, 1, 2, 3].map((i) => (
+        <Picker
+          key={i}
+          label={`Golpe ${i + 1}`}
+          value={moves[i] ?? ''}
+          options={options}
+          onChange={(v) => setSlot(i, v)}
+          emptyLabel="Vazio"
+          placeholder={options.length ? 'Escolher...' : 'Carregando movepool...'}
+        />
+      ))}
     </div>
   );
 }

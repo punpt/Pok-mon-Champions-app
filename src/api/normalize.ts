@@ -210,3 +210,57 @@ function splitNatureSpread(text: string): [string, string] {
   if (m) return [m[1], m[2]];
   return ['', text];
 }
+
+// ---------------------------------------------------------------------------
+// Escala do usage
+// ---------------------------------------------------------------------------
+
+export type UsageScale = 'auto' | 'times' | 'slots';
+
+export interface UsageScaleDecision {
+  /** Fator aplicado sobre o usage cru. */
+  factor: number;
+  /** Como interpretamos os numeros da fonte. */
+  mode: 'times' | 'slots';
+  /** Soma dos usages crus, que e a evidencia da decisao. */
+  rawSum: number;
+  automatic: boolean;
+}
+
+/**
+ * Descobre se a fonte publica usage por TIME ou por SLOT.
+ *
+ * A convencao que os jogadores conhecem — e que Pikalytics e afins usam — e
+ * "porcentagem de times que levam este Pokemon". Somada sobre o ladder inteiro,
+ * ela chega perto de 600%, porque cada time tem seis vagas. Ja uma fonte que
+ * publica a participacao de cada Pokemon no total de vagas soma perto de 100%.
+ *
+ * A diferenca de magnitude entre as duas e grande o bastante para decidir
+ * sozinha, mesmo com a lista truncada nos mais usados. Quando a fonte esta em
+ * slots, multiplicamos pelo tamanho do time para devolver o numero na escala
+ * que a pessoa espera ver.
+ */
+export function decideUsageScale(
+  usages: number[],
+  teamSize: number,
+  preference: UsageScale = 'auto',
+): UsageScaleDecision {
+  const rawSum = usages.reduce((a, b) => a + b, 0);
+
+  if (preference === 'times') {
+    return { factor: 1, mode: 'times', rawSum, automatic: false };
+  }
+  if (preference === 'slots') {
+    return { factor: teamSize, mode: 'slots', rawSum, automatic: false };
+  }
+
+  // Com dez ou mais entradas, uma soma abaixo de 1.5 so acontece se a fonte
+  // estiver distribuindo 100% entre todos os Pokemon — ou seja, por slot.
+  const porSlot = usages.length >= 10 && rawSum > 0 && rawSum < 1.5;
+  return {
+    factor: porSlot ? teamSize : 1,
+    mode: porSlot ? 'slots' : 'times',
+    rawSum,
+    automatic: true,
+  };
+}

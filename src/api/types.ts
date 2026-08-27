@@ -41,6 +41,14 @@ export interface MetaSnapshot {
   /** Epoch ms em que buscamos. */
   fetchedAt: number;
   entries: MetaEntry[];
+  /**
+   * Diagnostico da carga bem sucedida.
+   *
+   * Fica no snapshot de proposito: o caso dificil nao e a API falhar, e ela
+   * responder com numeros noutra escala. Sem isso, a unica forma de perceber
+   * seria comparar na mao com outro site.
+   */
+  diagnostics?: SourceDiagnostics;
 }
 
 export interface SourceDiagnostics {
@@ -57,6 +65,17 @@ export interface SourceDiagnostics {
   chosenUrl: string | null;
   entriesParsed: number;
   warnings: string[];
+  /**
+   * Como o usage foi interpretado. Serve para conferir de fora quando os
+   * numeros nao batem com o que os sites de meta mostram.
+   */
+  usage?: {
+    mode: 'times' | 'slots';
+    factor: number;
+    rawSum: number;
+    automatic: boolean;
+    amostra: string[];
+  };
 }
 
 export class MetaFetchError extends Error {

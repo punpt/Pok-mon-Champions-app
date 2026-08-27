@@ -58,6 +58,11 @@ export default function ThreatsPage() {
         field,
         signal: controller.signal,
         onProgress: (done, total) => setProgress({ done, total }),
+        // Preenche a tela enquanto calcula: os primeiros avaliados sao os de
+        // maior usage, entao o que aparece primeiro ja e o que mais importa.
+        onPartial: (parcial) => {
+          if (!controller.signal.aborted) setMatchups(parcial);
+        },
       }).then((r) => {
         if (!controller.signal.aborted) {
           setMatchups(r);

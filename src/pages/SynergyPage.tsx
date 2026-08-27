@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useTeamStore } from '../store/teamStore';
+import { useAddFromMeta } from '../lib/useAddFromMeta';
 import { useMetaStore } from '../store/metaStore';
 import { useRoster } from '../lib/roster';
 import { battleSpecies, type ChampionsSet } from '../data/set';
@@ -16,7 +17,7 @@ export default function SynergyPage() {
   const { speciesId } = useParams();
   const navigate = useNavigate();
   const team = useTeamStore((s) => s.teams.find((t) => t.id === s.activeId) ?? s.teams[0]);
-  const addMember = useTeamStore((s) => s.addMember);
+  const addFromMeta = useAddFromMeta();
   const { snapshot, enrichTop, enrich, revision } = useMetaStore();
   const roster = useRoster();
 
@@ -117,7 +118,7 @@ export default function SynergyPage() {
             </p>
           </div>
           {!inTeam.has(anchorId) && (
-            <Button onClick={() => addMember(anchorId)}>+ Time</Button>
+            <Button onClick={() => void addFromMeta(anchorId)}>+ Time</Button>
           )}
         </Card>
       )}
@@ -151,7 +152,7 @@ export default function SynergyPage() {
           {partners.length ? (
             <div className="space-y-2">
               {partners.slice(0, 20).map((p) => (
-                <PartnerCard key={p.id} p={p} onAdd={() => addMember(p.id)} inTeam={inTeam.has(p.id)} />
+                <PartnerCard key={p.id} p={p} onAdd={() => void addFromMeta(p.id)} inTeam={inTeam.has(p.id)} />
               ))}
             </div>
           ) : (

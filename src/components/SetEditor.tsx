@@ -5,6 +5,7 @@ import { battleSpecies, willMegaEvolve } from '../data/set';
 import { abilitiesOf, dex, getMove, getSpecies, learnsetOf, megasOf, NATURES } from '../data/dex';
 import { Picker, Sprite, TypeBadge, Pill, Button, type Option } from './ui';
 import SpEditor from './SpEditor';
+import { STAT_IDS, STAT_LABEL } from '../data/stats';
 import { useMetaStore } from '../store/metaStore';
 
 /** Itens plausiveis em VGC. A lista completa do dex tem lixo de campanha. */
@@ -195,6 +196,35 @@ export default function SetEditor({
           />
         ))}
       </div>
+
+      {(entry?.spreads?.length ?? 0) > 0 && (
+        <div className="mb-3">
+          <p className="mb-1 text-[10px] tracking-wide text-ink-400 uppercase">Spreads mais jogados</p>
+          <div className="scroll-x flex gap-1.5 pb-1">
+            {entry!.spreads.slice(0, 6).map((sp, i) => {
+              const ativo =
+                set.nature === sp.nature &&
+                STAT_IDS.every((id) => set.sp[id] === sp.sp[id]);
+              return (
+                <button
+                  key={i}
+                  onClick={() => onChange({ sp: sp.sp, nature: sp.nature })}
+                  className={`shrink-0 rounded-lg border px-2 py-1.5 text-left ${
+                    ativo ? 'border-accent bg-accent/10' : 'border-ink-700 bg-ink-800'
+                  }`}
+                >
+                  <span className="block text-[11px] text-ink-100">
+                    {sp.nature} {STAT_IDS.filter((id) => sp.sp[id] > 0).map((id) => `${sp.sp[id]} ${STAT_LABEL[id]}`).join(' / ')}
+                  </span>
+                  {sp.usage > 0 && (
+                    <span className="block text-[10px] text-ink-400">{(sp.usage * 100).toFixed(0)}% do ladder</span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       <SpEditor set={set} onChange={(sp) => onChange({ sp })} />
 

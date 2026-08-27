@@ -7,9 +7,10 @@
  */
 
 import { get, set, del } from 'idb-keyval';
-import type { MetaSnapshot } from './types';
+import type { MetaEntry, MetaSnapshot } from './types';
 
 const KEY_PREFIX = 'champions-lab:meta:';
+const DETAIL_PREFIX = 'champions-lab:detail:';
 
 function key(format: string): string {
   return `${KEY_PREFIX}${format}`;
@@ -37,6 +38,42 @@ export async function clearCachedSnapshot(format: string): Promise<void> {
     await del(key(format));
   } catch {
     /* nada a fazer */
+  }
+}
+
+/**
+ * Cache dos detalhes por Pokemon.
+ *
+ * Buscar o moveset de 30 Pokemon custa 30 idas a rede. Guardando por recorte,
+ * a segunda abertura do app nao paga nada disso — e o recorte entra na chave,
+ * entao quando a API publica um novo dia os dados velhos sao ignorados
+ * sozinhos, sem precisar limpar nada.
+ */
+function detailKey(format: string, label: string | null): string {
+  return `${DETAIL_PREFIX}${format}:${label ?? 'atual'}`;
+}
+
+export async function readCachedDetails(
+  format: string,
+  label: string | null,
+): Promise<Record<string, Partial<MetaEntry>>> {
+  try {
+    return (await get<Record<string, Partial<MetaEntry>>>(detailKey(format, label))) ?? {};
+  } catch {
+    return {};
+  }
+}
+
+export async function writeCachedDetails(
+  format: string,
+  label: string | null,
+  details: Record<string, Partial<MetaEntry>>,
+): Promise<void> {
+  try {
+    const atual = await readCachedDetails(format, label);
+    await set(detailKey(format, label), { ...atual, ...details });
+  } catch {
+    /* sem espaco: seguimos sem cache */
   }
 }
 

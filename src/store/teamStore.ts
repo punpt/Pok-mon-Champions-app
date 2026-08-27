@@ -58,6 +58,8 @@ interface TeamState {
   renameTeam(id: string, name: string): void;
   deleteTeam(id: string): void;
   addMember(speciesId: string): void;
+  /** Acrescenta um membro ja montado (tipicamente com os dados do ladder). */
+  addPreparedMember(set: ChampionsSet): void;
   updateMember(uid: string, patch: Partial<ChampionsSet>): void;
   removeMember(uid: string): void;
   replaceMembers(members: ChampionsSet[]): void;
@@ -111,6 +113,16 @@ export const useTeamStore = create<TeamState>((set, get) => {
         const max = activeRegulation().teamSize;
         if (t.members.length >= max) return t;
         return { ...t, members: [...t.members, emptySet(speciesId)] };
+      });
+    },
+
+    addPreparedMember(set) {
+      patchActive((t) => {
+        const max = activeRegulation().teamSize;
+        if (t.members.length >= max) return t;
+        // uid novo: o set presumido e compartilhado com o motor de ameacas e
+        // reaproveitar o uid dele faria dois slots apontarem para o mesmo lugar.
+        return { ...t, members: [...t.members, { ...set, uid: newUid() }] };
       });
     },
 

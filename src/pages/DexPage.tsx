@@ -1,14 +1,14 @@
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useMetaStore } from '../store/metaStore';
-import { useTeamStore } from '../store/teamStore';
+import { useAddFromMeta } from '../lib/useAddFromMeta';
 import { getSpecies } from '../data/dex';
 import { Card, Empty, Pill, Section, Sprite, Spinner, TypeBadge, UsageBar } from '../components/ui';
 import { BATTLE_TYPES, defensiveProfile } from '../data/dex';
 
 export default function DexPage() {
   const { snapshot, status, fromCache } = useMetaStore();
-  const addMember = useTeamStore((s) => s.addMember);
+  const addFromMeta = useAddFromMeta();
   const [query, setQuery] = useState('');
   const [type, setType] = useState<string>('');
 
@@ -85,7 +85,7 @@ export default function DexPage() {
                   <p className="mt-0.5 text-[11px] text-ink-400">{(e.usage * 100).toFixed(1)}% de usage</p>
                 </div>
                 <div className="flex shrink-0 flex-col gap-1">
-                  <button onClick={() => addMember(e.id)} className="rounded border border-ink-700 px-2 py-1 text-[11px] text-ink-300">
+                  <button onClick={() => void addFromMeta(e.id)} className="rounded border border-ink-700 px-2 py-1 text-[11px] text-ink-300">
                     + Time
                   </button>
                   <Link to={`/sinergia/${e.id}`} className="rounded border border-ink-700 px-2 py-1 text-center text-[11px] text-accent">

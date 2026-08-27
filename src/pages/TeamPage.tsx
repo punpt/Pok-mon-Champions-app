@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useTeamStore } from '../store/teamStore';
+import { useAddFromMeta } from '../lib/useAddFromMeta';
 import { battleSpecies, type ChampionsSet } from '../data/set';
 import { useMetaStore } from '../store/metaStore';
 import { useRoster } from '../lib/roster';
@@ -10,9 +11,10 @@ import SetEditor from '../components/SetEditor';
 import { Button, Card, Empty, Picker, Pill, Section, Sprite } from '../components/ui';
 
 export default function TeamPage() {
-  const { teams, activeId, setActive, createTeam, renameTeam, deleteTeam, addMember, updateMember, removeMember, replaceMembers } =
+  const { teams, activeId, setActive, createTeam, renameTeam, deleteTeam, updateMember, removeMember, replaceMembers } =
     useTeamStore();
   const team = teams.find((t) => t.id === activeId) ?? teams[0];
+  const addFromMeta = useAddFromMeta();
   const roster = useRoster();
   const status = useMetaStore((s) => s.status);
   const reg = activeRegulation();
@@ -115,7 +117,7 @@ export default function TeamPage() {
             label={`Adicionar Pokemon (${team.members.length}/${reg.teamSize})`}
             value=""
             options={roster.options}
-            onChange={(v) => v && addMember(v)}
+            onChange={(v) => void addFromMeta(v)}
             placeholder={
               status === 'carregando'
                 ? 'Carregando roster ao vivo...'
@@ -124,6 +126,10 @@ export default function TeamPage() {
                   : `${roster.total} Pokemon (legalidade nao confirmada)`
             }
           />
+          <p className="mt-1 text-[11px] text-ink-600">
+            Entra ja com o set mais jogado do ladder — ability, item, nature, Stat Points e golpes. Tudo editavel
+            depois.
+          </p>
           {!roster.confirmed && status !== 'carregando' && (
             <p className="mt-1 text-[11px] text-warn">
               Sem dados ao vivo: a lista e uma estimativa pelas regras da regulation, nao o roster oficial.

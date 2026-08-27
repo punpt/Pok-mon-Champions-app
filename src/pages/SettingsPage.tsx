@@ -6,7 +6,8 @@ import { snapshotAgeLabel } from '../api/cache';
 import { Button, Card, Pill, Section } from '../components/ui';
 
 export default function SettingsPage() {
-  const { baseUrl, setBaseUrl, load, status, snapshot, fromCache, error, diagnostics, clearCache } = useMetaStore();
+  const { baseUrl, setBaseUrl, load, status, snapshot, fromCache, error, diagnostics, clearCache, usageScale, setUsageScale } =
+    useMetaStore();
   const [draft, setDraft] = useState(baseUrl);
   const [showDiag, setShowDiag] = useState(false);
   const reg = activeRegulation();
@@ -63,6 +64,55 @@ export default function SettingsPage() {
             <Button onClick={() => void clearCache()}>Limpar cache</Button>
             <Button onClick={() => setShowDiag((v) => !v)}>Diagnostico</Button>
           </div>
+        </Card>
+      </Section>
+
+      <Section
+        title="Escala do usage"
+        subtitle="Se os percentuais nao batem com os sites de meta, e quase sempre isto"
+      >
+        <Card className="p-3">
+          <p className="mb-2 text-[11px] leading-relaxed text-ink-400">
+            Fontes diferentes publicam usage de dois jeitos. <strong>Por time</strong> e a convencao que voce ve no
+            Pikalytics: "quantos por cento dos times levam este Pokemon", e somada no ladder inteiro passa de 100%
+            porque cada time tem {6} vagas. <strong>Por slot</strong> divide 100% entre todos os Pokemon, entao os
+            numeros saem cerca de {6}x menores — um Pokemon em 40% dos times aparece como 6,7%.
+          </p>
+          <div className="flex gap-1.5">
+            {(['auto', 'times', 'slots'] as const).map((op) => (
+              <button
+                key={op}
+                onClick={() => {
+                  setUsageScale(op);
+                  void load(true);
+                }}
+                className={`flex-1 rounded-lg border py-1.5 text-[11px] ${
+                  usageScale === op ? 'border-accent bg-accent/10 text-accent' : 'border-ink-700 text-ink-400'
+                }`}
+              >
+                {op === 'auto' ? 'Automatico' : op === 'times' ? 'Por time' : 'Por slot'}
+              </button>
+            ))}
+          </div>
+
+          {diagnostics?.usage && (
+            <div className="mt-2 rounded-lg bg-ink-900 p-2 text-[11px]">
+              <p className="text-ink-300">
+                Detectado: <strong>{diagnostics.usage.mode === 'slots' ? 'por slot' : 'por time'}</strong>
+                {diagnostics.usage.automatic ? ' (automatico)' : ' (definido por voce)'}
+                {diagnostics.usage.factor !== 1 && ` · multiplicado por ${diagnostics.usage.factor}`}
+              </p>
+              <p className="mt-0.5 text-ink-400">
+                Soma dos usages crus: {(diagnostics.usage.rawSum * 100).toFixed(0)}%
+                {diagnostics.usage.rawSum < 1.5 ? ' — perto de 100%, tipico de escala por slot.' : ' — bem acima de 100%, tipico de escala por time.'}
+              </p>
+              <p className="mt-1 text-ink-300">Topo depois do ajuste: {diagnostics.usage.amostra.join(' · ')}</p>
+            </div>
+          )}
+          <p className="mt-1.5 text-[10px] leading-relaxed text-ink-600">
+            Confira o topo acima contra um site de meta que voce confie. Se estiver na escala errada, troque aqui —
+            o ranking de ameacas usa esses numeros como peso.
+          </p>
         </Card>
       </Section>
 

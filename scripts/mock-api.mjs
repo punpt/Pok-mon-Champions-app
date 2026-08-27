@@ -47,7 +47,12 @@ function detail(m) {
   };
 }
 
-const server = createServer((req, res) => {
+// Latencia simulada, para medir o app em condicao parecida com celular.
+// Ajuste com LATENCY_MS=0 para respostas instantaneas.
+const LATENCY = Number(process.env.LATENCY_MS ?? 250);
+
+const server = createServer(async (req, res) => {
+  if (LATENCY > 0) await new Promise((r) => setTimeout(r, LATENCY));
   const url = new URL(req.url, 'http://localhost');
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Content-Type', 'application/json');

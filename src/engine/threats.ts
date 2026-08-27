@@ -145,8 +145,64 @@ function exchangeDanger(
   return { danger, theirHits, myHits };
 }
 
-/** Avalia um confronto 1x1 entre o meu set e o set presumido de um oponente. */
+/**
+ * Assinatura de um set para fins de cache. So o que muda o resultado entra.
+ *
+ * As odds dos golpes fazem parte: dois sets com o mesmo moveset mas usages
+ * diferentes produzem perigos diferentes, e omiti-las aqui fazia um colidir
+ * com o outro.
+ */
+function setSignature(set: ChampionsSet): string {
+  const odds = set.moveOdds
+    ? Object.entries(set.moveOdds)
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([k, v]) => `${k}:${v.toFixed(3)}`)
+        .join(',')
+    : '';
+  return [
+    set.species,
+    set.item,
+    set.ability,
+    set.nature,
+    set.sp.hp, set.sp.atk, set.sp.def, set.sp.spa, set.sp.spd, set.sp.spe,
+    set.moves.join(','),
+    odds,
+  ].join('|');
+}
+
+const matchupCache = new Map<string, Matchup>();
+
+/** Limpa o cache de confrontos. Chamar quando o recorte de meta mudar. */
+export function clearMatchupCache(): void {
+  matchupCache.clear();
+}
+
+/**
+ * Avalia um confronto 1x1 entre o meu set e o set presumido de um oponente.
+ *
+ * O resultado e memorizado: o motor de sinergia reavalia o mesmo par muitas
+ * vezes ao cruzar candidatos com ameacas, e trocar de aba refaz a tela inteira.
+ */
 export function evaluateMatchup(
+  mine: ChampionsSet,
+  opponent: ChampionsSet,
+  meta: { id: string; name: string; usage: number; rank: number; provenance: SetProvenance },
+  field: FieldOptions = {},
+): Matchup {
+  const key = `${setSignature(mine)}#${setSignature(opponent)}#${JSON.stringify(field)}`;
+  const hit = matchupCache.get(key);
+  // O usage muda entre chamadas sem mudar o confronto em si, entao ele e
+  // reaplicado por cima do resultado memorizado.
+  if (hit) return { ...hit, usage: meta.usage, rank: meta.rank, name: meta.name };
+
+  const fresh = computeMatchup(mine, opponent, meta, field);
+  // Teto para o cache nao crescer sem limite numa sessao longa.
+  if (matchupCache.size > 20_000) matchupCache.clear();
+  matchupCache.set(key, fresh);
+  return fresh;
+}
+
+function computeMatchup(
   mine: ChampionsSet,
   opponent: ChampionsSet,
   meta: { id: string; name: string; usage: number; rank: number; provenance: SetProvenance },
@@ -283,6 +339,14 @@ export interface ThreatScanOptions {
   field?: FieldOptions;
   signal?: AbortSignal;
   onProgress?: (done: number, total: number) => void;
+  /**
+   * Recebe a lista parcial ja ordenada durante o calculo.
+   *
+   * Como os Pokemon sao avaliados na ordem de usage, os primeiros resultados
+   * ja sao os que mais importam. Entregar em lotes deixa a tela util em
+   * fracao do tempo, em vez de ficar em branco ate o fim.
+   */
+  onPartial?: (parcial: Matchup[]) => void;
 }
 
 /** Ameacas contra UM Pokemon, ordenadas por perigo ponderado pelo usage. */
@@ -319,6 +383,7 @@ export async function scanThreatsFor(
 
     if (i % 8 === 7) {
       opts.onProgress?.(i + 1, pool.length);
+      opts.onPartial?.([...out].sort((a, b) => b.weighted - a.weighted));
       await yieldToUi();
     }
   }
