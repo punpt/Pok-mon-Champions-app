@@ -300,3 +300,162 @@ describe('reconstrucao de set presumido', () => {
     expect(dano).toBeTruthy();
   });
 });
+
+describe('perigo medido pela troca, nao pelo dano bruto', () => {
+  const ZARD_Y = build('charizard', {
+    ability: 'Blaze',
+    item: 'Charizardite Y',
+    nature: 'Modest',
+    sp: makeSpread({ spa: 32, spe: 26, hp: 8 }),
+    moves: ['Heat Wave', 'Solar Beam', 'Air Slash', 'Protect'],
+  });
+
+  it('Garchomp com Rock Slide domina Charizard-Mega-Y', () => {
+    // Rock e 4x em Fogo/Voador e o Garchomp ainda e mais rapido: o Mega Y
+    // simplesmente nao chega a atacar.
+    const rockSlide = calcDamage({ attacker: GARCHOMP, defender: ZARD_Y, move: 'Rock Slide' });
+    expect(rockSlide!.percent[0]).toBeGreaterThanOrEqual(1);
+    expect(effectiveSpeed(GARCHOMP)).toBeGreaterThan(effectiveSpeed(ZARD_Y));
+
+    const m = evaluateMatchup(GARCHOMP, ZARD_Y, {
+      id: 'charizardmegay', name: 'Charizard-Mega-Y', usage: 0.174, rank: 6, provenance: 'meta',
+    });
+    expect(m.verdict).toBe('domina');
+    expect(m.danger).toBeLessThan(0.2);
+    expect(m.reasons.join(' ')).toMatch(/voce vence a troca/i);
+  });
+
+  it('mantem Kingambit como ameaca grave ao Basculegion', () => {
+    const m = evaluateMatchup(BASCULEGION, KINGAMBIT, {
+      id: 'kingambit', name: 'Kingambit', usage: 0.18, rank: 5, provenance: 'meta',
+    });
+    expect(m.verdict).toBe('perde-feio');
+    expect(m.priorityKO?.move).toBe('Sucker Punch');
+  });
+
+  it('um Pokemon que nao derruba em tempo util nao vira ameaca', () => {
+    const inofensivo = build('blissey', {
+      ability: 'Natural Cure', nature: 'Calm',
+      sp: makeSpread({ hp: 32, spd: 32, def: 2 }), moves: ['Pollen Puff'],
+    });
+    const m = evaluateMatchup(GARCHOMP, inofensivo, {
+      id: 'blissey', name: 'Blissey', usage: 0.01, rank: 40, provenance: 'derivado',
+    });
+    expect(m.danger).toBeLessThanOrEqual(0.25);
+  });
+
+  it('quem age primeiro decide quando os dois precisam do mesmo numero de golpes', () => {
+    // Espelho de Garchomp: dano identico nos dois sentidos, entao a unica
+    // variavel e a Speed. Quem age primeiro tem que sair melhor.
+    const rapido = build('garchomp', {
+      ability: 'Rough Skin', nature: 'Jolly',
+      sp: makeSpread({ atk: 32, spe: 32, hp: 2 }), moves: ['Dragon Claw'],
+    });
+    const lento = build('garchomp', {
+      ability: 'Rough Skin', nature: 'Adamant',
+      sp: makeSpread({ atk: 32, hp: 32, def: 2 }), moves: ['Dragon Claw'],
+    });
+    expect(effectiveSpeed(rapido)).toBeGreaterThan(effectiveSpeed(lento));
+
+    const doRapido = evaluateMatchup(rapido, lento, {
+      id: 'garchomp', name: 'Garchomp', usage: 0.3, rank: 1, provenance: 'meta',
+    });
+    const doLento = evaluateMatchup(lento, rapido, {
+      id: 'garchomp', name: 'Garchomp', usage: 0.3, rank: 1, provenance: 'meta',
+    });
+    expect(doRapido.danger).toBeLessThan(doLento.danger);
+  });
+
+  it('nao trata dano bruto alto como ameaca quando o oponente morre antes de agir', () => {
+    // Ursaluna bate muito mais forte que Sneasler, mas se o Sneasler derrubasse
+    // de um golpe agindo primeiro, o dano do Ursaluna nao aconteceria. Aqui ele
+    // NAO derruba, entao o veredito tem que ser desfavoravel ao Sneasler — e o
+    // motivo tem que aparecer escrito.
+    const sneasler = build('sneasler', {
+      ability: 'Unburden', nature: 'Jolly',
+      sp: makeSpread({ atk: 32, spe: 32, hp: 2 }), moves: ['Close Combat'],
+    });
+    const ursaluna = build('ursaluna', {
+      ability: 'Guts', nature: 'Adamant',
+      sp: makeSpread({ atk: 32, hp: 32, def: 2 }), moves: ['Headlong Rush'],
+    });
+    const m = evaluateMatchup(sneasler, ursaluna, {
+      id: 'ursaluna', name: 'Ursaluna', usage: 0.07, rank: 16, provenance: 'meta',
+    });
+    expect(m.danger).toBeGreaterThan(0.5);
+    expect(m.reasons.join(' ')).toMatch(/vence a troca/i);
+  });
+
+  it('avisa quando o set nao tem golpe de ataque em vez de fingir analise', () => {
+    const semGolpes = build('garchomp', { ability: 'Rough Skin', nature: 'Adamant', moves: [] });
+    const m = evaluateMatchup(semGolpes, KINGAMBIT, {
+      id: 'kingambit', name: 'Kingambit', usage: 0.18, rank: 5, provenance: 'meta',
+    });
+    expect(m.reasons.join(' ')).toMatch(/sem isso o confronto nao da para julgar/i);
+  });
+});
+
+describe('ameaca ponderada pelo usage do golpe', () => {
+  const ZARD_Y = build('charizard', {
+    ability: 'Blaze', item: 'Charizardite Y', nature: 'Modest',
+    sp: makeSpread({ spa: 32, spe: 26, hp: 8 }),
+    moves: ['Heat Wave', 'Solar Beam', 'Air Slash', 'Protect'],
+  });
+
+  function chompComOdds(rockSlideUsage: number): ChampionsSet {
+    return build('garchomp', {
+      ability: 'Rough Skin', item: 'Life Orb', nature: 'Adamant',
+      sp: makeSpread({ atk: 32, spe: 32, hp: 2 }),
+      moves: ['Earthquake', 'Rock Slide', 'Dragon Claw', 'Protect'],
+      moveOdds: { Earthquake: 0.9, 'Rock Slide': rockSlideUsage, 'Dragon Claw': 0.6, Protect: 0.8 },
+    });
+  }
+
+  it('um golpe de nicho ameaca menos que um golpe que todo mundo carrega', () => {
+    // Do ponto de vista do Zard: quantos Garchomp realmente tem Rock Slide?
+    const contraTodos = evaluateMatchup(ZARD_Y, chompComOdds(1.0), {
+      id: 'garchomp', name: 'Garchomp', usage: 0.3, rank: 1, provenance: 'meta',
+    });
+    const contraMetade = evaluateMatchup(ZARD_Y, chompComOdds(0.5), {
+      id: 'garchomp', name: 'Garchomp', usage: 0.3, rank: 1, provenance: 'meta',
+    });
+    const contraRaros = evaluateMatchup(ZARD_Y, chompComOdds(0.1), {
+      id: 'garchomp', name: 'Garchomp', usage: 0.3, rank: 1, provenance: 'meta',
+    });
+
+    expect(contraTodos.danger).toBeGreaterThan(contraMetade.danger);
+    expect(contraMetade.danger).toBeGreaterThan(contraRaros.danger);
+    expect(contraMetade.decisiveMoveOdds).toBeCloseTo(0.5, 2);
+  });
+
+  it('escreve a probabilidade na justificativa em vez de esconder a incerteza', () => {
+    const m = evaluateMatchup(ZARD_Y, chompComOdds(0.5), {
+      id: 'garchomp', name: 'Garchomp', usage: 0.3, rank: 1, provenance: 'meta',
+    });
+    expect(m.reasons.join(' ')).toMatch(/50% dos Garchomp carregam Rock Slide/i);
+  });
+
+  it('sem dado de usage assume que o golpe esta la (leitura conservadora)', () => {
+    const semOdds = build('garchomp', {
+      ability: 'Rough Skin', item: 'Life Orb', nature: 'Adamant',
+      sp: makeSpread({ atk: 32, spe: 32, hp: 2 }),
+      moves: ['Earthquake', 'Rock Slide', 'Dragon Claw', 'Protect'],
+    });
+    const m = evaluateMatchup(ZARD_Y, semOdds, {
+      id: 'garchomp', name: 'Garchomp', usage: 0.3, rank: 1, provenance: 'derivado',
+    });
+    expect(m.decisiveMoveOdds).toBe(1);
+    expect(m.danger).toBeGreaterThan(0.6);
+  });
+
+  it('Sucker Punch a 95% mantem o Kingambit como ameaca quase certa', async () => {
+    const entry = META_MB.find((e) => e.id === 'kingambit')!;
+    const presumido = await presumeSet('kingambit', entry);
+    expect(presumido.set.moveOdds?.['Sucker Punch']).toBeGreaterThan(0.9);
+
+    const m = evaluateMatchup(BASCULEGION, presumido.set, {
+      id: 'kingambit', name: 'Kingambit', usage: 0.18, rank: 5, provenance: 'meta',
+    });
+    expect(m.verdict).toBe('perde-feio');
+  });
+});

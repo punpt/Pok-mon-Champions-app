@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { useTeamStore } from '../store/teamStore';
 import { useMetaStore } from '../store/metaStore';
 import { battleSpecies, type ChampionsSet } from '../data/set';
+import { getMove } from '../data/dex';
 import {
   scanTeamThreats,
   scanThreatsFor,
@@ -169,13 +170,30 @@ function Toggle({ active, onClick, children }: { active: boolean; onClick: () =>
   );
 }
 
+function hasAttackingMove(set: ChampionsSet): boolean {
+  return set.moves.some((name) => {
+    const move = getMove(name);
+    return Boolean(move) && move!.category !== 'Status';
+  });
+}
+
 function MemberThreats({ matchups, mine }: { matchups: Matchup[]; mine: ChampionsSet }) {
   const dangerous = matchups.filter((m) => m.danger >= 0.4);
   const safe = matchups.filter((m) => m.danger < 0.2).slice(0, 8);
   const meuNome = battleSpecies(mine)?.name ?? '';
+  const semGolpes = !hasAttackingMove(mine);
 
   return (
     <>
+      {semGolpes && (
+        <Card className="mb-4 border-warn/40 bg-warn/10 p-3">
+          <p className="text-xs leading-relaxed text-warn">
+            <strong>{meuNome} esta sem golpe de ataque.</strong> Sem saber o que ele devolve, o app trata todo
+            confronto como se voce nao pudesse revidar — e a lista abaixo fica pessimista demais. Defina os golpes
+            na aba Time para a analise valer.
+          </p>
+        </Card>
+      )}
       <Section
         title={`Quem ameaca ${meuNome}`}
         subtitle={`${dangerous.length} de ${matchups.length} avaliados representam perigo real`}
@@ -221,6 +239,9 @@ function ThreatCard({ m }: { m: Matchup }) {
             <span className="truncate text-sm font-medium text-ink-100">{m.name}</span>
             <Pill tone={tone}>{VERDICT_LABEL[m.verdict]}</Pill>
             {m.priorityKO && <Pill tone="danger">prioridade</Pill>}
+            {m.decisiveMoveOdds < 0.85 && m.incomingPct >= 0.5 && (
+              <Pill tone="warn">{Math.round(m.decisiveMoveOdds * 100)}% carregam</Pill>
+            )}
             {m.provenance === 'derivado' && <Pill>set estimado</Pill>}
           </span>
           <span className="mt-1 block text-[11px] text-ink-400">

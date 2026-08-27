@@ -13,6 +13,15 @@ export interface ChampionsSet {
   nature: string;
   sp: SpSpread;
   moves: string[];
+  /**
+   * Fracao do ladder que carrega cada golpe, quando a API informa.
+   *
+   * Um set do meta nao e uma certeza: se Rock Slide esta em 50% dos Garchomp,
+   * metade deles simplesmente nao tem como derrubar um Charizard-Mega-Y.
+   * Tratar os quatro golpes mais jogados como se fossem garantidos infla toda
+   * ameaca que depende de um golpe de nicho.
+   */
+  moveOdds?: Record<string, number>;
   nickname?: string;
   notes?: string;
 }

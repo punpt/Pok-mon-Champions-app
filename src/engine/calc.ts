@@ -209,6 +209,36 @@ function typeEffectivenessOfMove(moveName: string, def: Pokemon): number {
   return mult;
 }
 
+export interface RankedMove {
+  out: CalcOutput;
+  /** Fracao do ladder que carrega este golpe. 1 quando nao ha dado de usage. */
+  odds: number;
+}
+
+/**
+ * Todos os golpes de ataque do set contra o defensor, do mais letal ao menos,
+ * cada um com a probabilidade de o oponente realmente carrega-lo.
+ */
+export function rankedMovesAgainst(
+  attacker: ChampionsSet,
+  defender: ChampionsSet,
+  field?: FieldOptions,
+  boosts?: Partial<Record<StatID, number>>,
+): RankedMove[] {
+  const out: RankedMove[] = [];
+  for (const moveName of attacker.moves) {
+    const move = getMove(moveName);
+    if (!move || move.category === 'Status') continue;
+    const result = calcDamage({ attacker, defender, move: moveName, field, attackerBoosts: boosts });
+    if (!result) continue;
+    // Sem dado de usage assumimos que o golpe esta la: e o comportamento
+    // conservador para uma lista de ameacas.
+    const odds = attacker.moveOdds?.[move.name] ?? 1;
+    out.push({ out: result, odds });
+  }
+  return out.sort((a, b) => b.out.percent[1] - a.out.percent[1]);
+}
+
 /** Melhor golpe do atacante contra o defensor, medido pelo dano maximo. */
 export function bestMoveAgainst(
   attacker: ChampionsSet,

@@ -142,6 +142,14 @@ export async function presumeSet(
     set.sp = defaultSpread(speciesId);
   }
 
+  // Odds de cada golpe, para o motor de ameacas ponderar em vez de assumir.
+  const odds: Record<string, number> = {};
+  for (const m of entry?.moves ?? []) {
+    const move = getMove(m.name);
+    if (move) odds[move.name] = Math.min(1, Math.max(0, m.usage));
+  }
+  if (Object.keys(odds).length) set.moveOdds = odds;
+
   // Moves
   const metaMoves = (entry?.moves ?? [])
     .map((m) => getMove(m.name))

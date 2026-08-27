@@ -15,7 +15,7 @@
 import type { MetaEntry } from '../api/types';
 import type { ChampionsSet } from '../data/set';
 import { getMove, getSpecies } from '../data/dex';
-import { bestMoveAgainst, calcDamage, effectiveSpeed, type CalcOutput, type FieldOptions } from './calc';
+import { bestMoveAgainst, calcDamage, effectiveSpeed, rankedMovesAgainst, type CalcOutput, type FieldOptions } from './calc';
 import { presumedSetCached, type SetProvenance } from './presume';
 
 export type Verdict = 'perde-feio' | 'desfavoravel' | 'equilibrado' | 'favoravel' | 'domina';
@@ -49,6 +49,11 @@ export interface Matchup {
   theyActFirst: boolean;
   /** Ele mata com golpe de prioridade mesmo sendo mais lento. */
   priorityKO: { move: string; pct: number } | null;
+  /**
+   * Fracao do ladder que carrega o golpe decisivo dele. Menor que 1 significa
+   * que parte dos exemplares desse Pokemon nao tem como executar essa ameaca.
+   */
+  decisiveMoveOdds: number;
   /** 0 a 1: o quanto ele e perigoso para mim. */
   danger: number;
   /** danger ponderado pelo usage: e assim que a lista principal e ordenada. */
@@ -93,6 +98,53 @@ function classify(danger: number): Verdict {
   return 'domina';
 }
 
+/** Acima disto consideramos que o Pokemon nao mata em tempo util de doubles. */
+const HIT_CAP = 6;
+
+/** Golpes necessarios para derrubar, dado o percentual de dano por golpe. */
+function hitsToKO(pct: number): number {
+  if (pct <= 0) return HIT_CAP;
+  return Math.min(HIT_CAP, Math.ceil(1 / pct));
+}
+
+/**
+ * Perigo de um confronto, medido pela troca de golpes e nao pelo dano bruto.
+ *
+ * A pergunta que decide um 1x1 e "quem cai primeiro", nao "quem bate mais
+ * forte". Se eu ajo antes e derrubo em um golpe, o dano que o oponente teria
+ * causado nunca acontece — ele pode ter o ataque mais forte do formato e ainda
+ * assim nao ser ameaca nenhuma. O caso que expos isso: Garchomp com Rock Slide
+ * derruba Charizard-Mega-Y de um golpe (Rock e 4x em Fogo/Voador) e ainda e
+ * mais rapido, entao o Mega Y nao ameaca coisa alguma.
+ *
+ * Comparamos entao quantos golpes cada lado precisa, com meio ponto de
+ * vantagem para quem age primeiro, e passamos a diferenca por uma sigmoide.
+ *
+ * As rolagens sao lidas pelo lado pessimista de proposito: o dano que EU sofro
+ * usa a rolagem maxima e o dano que EU causo usa a minima. Uma lista de ameacas
+ * deve errar para o lado do cuidado.
+ */
+function exchangeDanger(
+  incomingMax: number,
+  outgoingMin: number,
+  theyActFirst: boolean,
+  hasPriorityKO: boolean,
+): { danger: number; theirHits: number; myHits: number } {
+  const theirHits = hasPriorityKO ? 1 : hitsToKO(incomingMax);
+  const myHits = hitsToKO(outgoingMin);
+
+  // Quem age primeiro ganha meia troca: com o mesmo numero de golpes, decide.
+  const initiative = theyActFirst || hasPriorityKO ? -0.75 : 0.75;
+  const margin = theirHits - myHits + initiative;
+
+  let danger = 1 / (1 + Math.exp(margin * 2.5));
+
+  // Quem nao derruba em tempo util nao e ameaca, por mais lento que eu seja.
+  if (theirHits >= HIT_CAP) danger = Math.min(danger, 0.25);
+
+  return { danger, theirHits, myHits };
+}
+
 /** Avalia um confronto 1x1 entre o meu set e o set presumido de um oponente. */
 export function evaluateMatchup(
   mine: ChampionsSet,
@@ -117,41 +169,74 @@ export function evaluateMatchup(
 
   const priorityKO = findPriorityKO(opponent, mine, field);
 
-  // Perigo: quanto ele tira de mim, penalizado pelo que eu devolvo, e com peso
-  // extra quando ele age primeiro (o dano dele acontece antes do meu).
-  const initiative = theyActFirst || priorityKO ? 1 : 0.7;
-  const raw = Math.min(1.4, incomingPct) * initiative - Math.min(1.2, outgoingPct) * 0.35;
-  const danger = Math.max(0, Math.min(1, raw));
+  // Dano garantido que eu causo (rolagem minima) contra o dano maximo que sofro.
+  const outgoingMin = outgoing ? outgoing.percent[0] : 0;
+
+  // O golpe mais letal dele pode ser de nicho. Em vez de assumir que todo
+  // exemplar carrega, pesamos dois cenarios pelo usage do golpe: ele tem, ou
+  // ele fica com o melhor golpe que provavelmente tem.
+  const ranked = rankedMovesAgainst(opponent, mine, field);
+  const decisive = ranked[0] ?? null;
+  const decisiveMoveOdds = decisive ? decisive.odds : 1;
+  const fallback = ranked.slice(1).find((r) => r.odds >= 0.5) ?? ranked[1] ?? null;
+
+  const comGolpe = exchangeDanger(incomingPct, outgoingMin, theyActFirst, Boolean(priorityKO));
+  const semGolpe = fallback
+    ? exchangeDanger(fallback.out.percent[1], outgoingMin, theyActFirst, false)
+    : exchangeDanger(0, outgoingMin, theyActFirst, false);
+
+  const p = Math.min(1, Math.max(0, decisiveMoveOdds));
+  const danger = comGolpe.danger * p + semGolpe.danger * (1 - p);
+  const theirHits = comGolpe.theirHits;
+  const myHits = comGolpe.myHits;
 
   const reasons: string[] = [];
   if (priorityKO) {
-    reasons.push(
-      `Mata com ${priorityKO.move} (prioridade) — velocidade nao te salva.`,
-    );
+    reasons.push(`Mata com ${priorityKO.move} (prioridade) — velocidade nao te salva.`);
   }
   if (incoming) {
     if (incomingPct >= 1) {
       reasons.push(`OHKO com ${incoming.move} (${pct(incoming.percent[0])}–${pct(incomingPct)}).`);
-    } else if (incomingPct >= 0.5) {
-      reasons.push(`${incoming.move} tira ${pct(incoming.percent[0])}–${pct(incomingPct)}: 2HKO.`);
+    } else if (theirHits < HIT_CAP) {
+      reasons.push(
+        `${incoming.move} tira ${pct(incoming.percent[0])}–${pct(incomingPct)}: derruba em ${theirHits}.`,
+      );
     } else {
-      reasons.push(`Melhor golpe dele: ${incoming.move}, ${pct(incomingPct)} no maximo.`);
+      reasons.push(`Nao te derruba em tempo util: ${incoming.move} so tira ${pct(incomingPct)}.`);
     }
   } else {
     reasons.push('Nao tem golpe de ataque relevante contra voce.');
   }
-  if (outgoing) {
-    if (outgoingPct >= 1) reasons.push(`Voce mata de volta com ${outgoing.move}.`);
-    else if (outgoingPct < 0.35) reasons.push(`Voce mal arranha: ${outgoing.move} so tira ${pct(outgoingPct)}.`);
-  } else {
-    reasons.push('Voce nao tem como machucar ele com este set.');
-  }
-  if (!priorityKO) {
+
+  if (decisive && decisiveMoveOdds < 0.85 && incomingPct >= 0.5) {
     reasons.push(
-      theyActFirst
-        ? `Ele age primeiro (${theirSpeed} contra ${mySpeed} de Speed).`
-        : `Voce age primeiro (${mySpeed} contra ${theirSpeed} de Speed).`,
+      `Mas so ${pct(decisiveMoveOdds)} dos ${meta.name} carregam ${decisive.out.move}` +
+        (fallback ? `; sem ele o melhor e ${fallback.out.move} (${pct(fallback.out.percent[1])}).` : '.'),
     );
+  }
+
+  if (outgoing) {
+    if (outgoingMin >= 1) {
+      reasons.push(`Voce derruba de um golpe com ${outgoing.move}.`);
+    } else if (myHits < HIT_CAP) {
+      reasons.push(`Voce derruba em ${myHits} com ${outgoing.move} (${pct(outgoingMin)}–${pct(outgoingPct)}).`);
+    } else {
+      reasons.push(`Voce nao derruba em tempo util: ${outgoing.move} so tira ${pct(outgoingPct)}.`);
+    }
+  } else {
+    reasons.push('Voce nao tem golpe de ataque neste set — sem isso o confronto nao da para julgar.');
+  }
+
+  if (!priorityKO) {
+    const quem = theyActFirst ? 'Ele age primeiro' : 'Voce age primeiro';
+    reasons.push(`${quem} (${mySpeed} contra ${theirSpeed} de Speed).`);
+  }
+
+  // A frase que fecha o raciocinio: quem ganha a troca e por que.
+  if (myHits < theirHits || (myHits === theirHits && !theyActFirst && !priorityKO)) {
+    reasons.push(`Resultado: voce vence a troca (${myHits} golpe(s) contra ${theirHits} dele).`);
+  } else if (theirHits < myHits || theyActFirst || priorityKO) {
+    reasons.push(`Resultado: ele vence a troca (${theirHits} golpe(s) contra ${myHits} seus).`);
   }
 
   return {
@@ -169,6 +254,7 @@ export function evaluateMatchup(
     theirSpeed,
     theyActFirst,
     priorityKO,
+    decisiveMoveOdds,
     danger,
     weighted: danger * usageWeight(meta.usage),
     verdict: classify(danger),
