@@ -1,39 +1,21 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
 import type { ChampionsSet } from '../data/set';
 import { battleSpecies, willMegaEvolve } from '../data/set';
-import { abilitiesOf, dex, getMove, getSpecies, learnsetOf, megasOf, NATURES } from '../data/dex';
+import { abilitiesOf, dex, getMove, getSpecies, learnsetOf, NATURES } from '../data/dex';
+import { legalItemsFor } from '../data/items';
+import { Link } from 'react-router-dom';
 import { Picker, Sprite, TypeBadge, Pill, Button, type Option } from './ui';
 import SpEditor from './SpEditor';
 import { STAT_IDS, STAT_LABEL } from '../data/stats';
 import { useMetaStore } from '../store/metaStore';
 
-/** Itens plausiveis em VGC. A lista completa do dex tem lixo de campanha. */
+/** Itens que esta especie pode segurar no formato. */
 function itemOptions(speciesId: string): Option[] {
-  const stones = new Set(
-    megasOf(getSpecies(speciesId) ?? ({} as never))
-      .map((m) => String(m.requiredItem))
-      .filter(Boolean),
-  );
-
-  return dex.items
-    .all()
-    .filter((i) => i.exists && i.isNonstandard !== 'CAP')
-    .filter((i) => {
-      // Mega Stones so aparecem para quem realmente mega evolui com elas.
-      if (i.megaStone || /ite( [XYZ])?$/.test(i.name)) return stones.has(i.name);
-      return true;
-    })
-    .map((i) => ({
-      value: i.name,
-      label: i.name,
-      hint: stones.has(i.name) ? 'Mega Stone desta especie' : i.shortDesc || i.desc,
-    }))
-    .sort((a, b) => {
-      const aStone = stones.has(a.value) ? 0 : 1;
-      const bStone = stones.has(b.value) ? 0 : 1;
-      return aStone - bStone || a.label.localeCompare(b.label);
-    });
+  return legalItemsFor(speciesId).map(({ item, isMegaStone }) => ({
+    value: item.name,
+    label: item.name,
+    hint: isMegaStone ? `Mega Stone — vira ${item.megaStone ?? 'a forma Mega'}` : item.shortDesc || item.desc,
+  }));
 }
 
 export default function SetEditor({
@@ -138,17 +120,12 @@ export default function SetEditor({
             </p>
           )}
         </div>
-        <div className="flex flex-col gap-1">
-          <Link
-            to={`/sinergia/${set.species}`}
-            className="rounded border border-ink-700 px-2 py-1 text-[11px] text-ink-300 hover:border-accent hover:text-accent"
-          >
-            Sinergias
-          </Link>
-          <button onClick={onRemove} className="rounded border border-ink-700 px-2 py-1 text-[11px] text-danger">
-            Remover
-          </button>
-        </div>
+        <button
+          onClick={onRemove}
+          className="shrink-0 self-start rounded-lg border border-ink-700 px-2.5 py-1.5 text-[11px] text-danger transition active:scale-95"
+        >
+          Remover
+        </button>
       </div>
 
       <div className="mb-3 grid grid-cols-2 gap-2">
@@ -228,14 +205,9 @@ export default function SetEditor({
 
       <SpEditor set={set} onChange={(sp) => onChange({ sp })} />
 
-      <div className="mt-3 flex gap-2">
-        <Link to="/sp" className="flex-1">
-          <Button className="w-full">Otimizar SP</Button>
-        </Link>
-        <Link to="/calc" className="flex-1">
-          <Button className="w-full">Calcular dano</Button>
-        </Link>
-      </div>
+      <Link to="/calc" className="mt-3 block">
+        <Button className="w-full">Testar na calculadora</Button>
+      </Link>
     </div>
   );
 }

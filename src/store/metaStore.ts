@@ -19,7 +19,6 @@ import { mapWithConcurrency } from '../lib/pool';
 import { MetaFetchError, type MetaEntry, type MetaSnapshot, type SourceDiagnostics } from '../api/types';
 import type { UsageScale } from '../api/normalize';
 import { activeRegulation } from '../data/rules';
-import { clearMatchupCache } from '../engine/threats';
 
 const BASE_URL_KEY = 'champions-lab:baseUrl';
 const USAGE_SCALE_KEY = 'champions-lab:usageScale';
@@ -159,8 +158,6 @@ export const useMetaStore = create<MetaState>((set, get) => ({
         usageScale: get().usageScale,
       });
       await writeCachedSnapshot(live);
-      // Recorte novo invalida qualquer confronto memorizado do anterior.
-      clearMatchupCache();
       set((prev) => ({
         snapshot: live,
         status: 'ao-vivo',

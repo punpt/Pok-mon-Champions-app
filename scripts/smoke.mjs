@@ -1,80 +1,57 @@
 import { chromium } from 'playwright';
 
 const BASE = 'http://127.0.0.1:5173';
-const errors = [];
-const shots = [];
-
+const erros = [];
 const browser = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium-1194/chrome-linux/chrome' });
 const ctx = await browser.newContext({ viewport: { width: 412, height: 915 }, deviceScaleFactor: 2 });
+await ctx.addInitScript(() => localStorage.setItem('champions-lab:baseUrl', 'http://localhost:4321'));
 const page = await ctx.newPage();
+page.on('pageerror', (e) => erros.push(`[pageerror] ${e.message}`));
 
-page.on('console', (m) => { if (m.type() === 'error') errors.push(`[console] ${m.text()}`); });
-page.on('pageerror', (e) => errors.push(`[pageerror] ${e.message}`));
-
-// Aponta o app para a API local antes do primeiro render.
-await ctx.addInitScript(() => {
-  localStorage.setItem('champions-lab:baseUrl', 'http://localhost:4321');
-});
-
-async function shot(name, waitFor) {
-  if (waitFor) {
-    try { await page.waitForSelector(waitFor, { timeout: 12000 }); }
-    catch { errors.push(`[timeout] "${waitFor}" nao apareceu em ${name}`); }
-  }
-  await page.waitForTimeout(1500);
-  const p = `/tmp/shots/${name}.png`;
-  // fullPage numa pagina muito alta com spinner animado trava o screenshot.
-  await page.screenshot({ path: p, animations: 'disabled', timeout: 60000 });
-  shots.push(p);
-  console.log(`  ✓ ${name}`);
+async function escolher(rotulo, nome) {
+  await page.getByRole('button', { name: new RegExp(`^${rotulo}`) }).first().click();
+  await page.waitForTimeout(500);
+  await page.getByPlaceholder('Buscar...').fill(nome);
+  await page.waitForTimeout(500);
+  await page.locator('.fixed.inset-0 button', { hasText: nome }).first().click();
+  await page.waitForTimeout(2200);
 }
 
-console.log('1. Abrindo o app...');
+console.log('montando time...');
 await page.goto(`${BASE}/#/time`, { waitUntil: 'networkidle' });
 await page.waitForTimeout(2500);
-await shot('01-time-vazio');
+for (const mon of ['Garchomp', 'Whimsicott', 'Kingambit']) {
+  await escolher('Adicionar Pokemon', mon);
+  console.log(`  + ${mon}`);
+}
+await page.waitForTimeout(1500);
+await page.screenshot({ path: '/tmp/shots/20-time.png', animations: 'disabled', fullPage: true, timeout: 60000 });
 
-console.log('2. Adicionando Garchomp...');
-await page.getByText(/Adicionar Pokemon/i).click();
-await page.waitForTimeout(600);
-await page.getByPlaceholder('Buscar...').fill('Garchomp');
-await page.waitForTimeout(500);
-await page.locator('button', { hasText: 'Garchomp' }).first().click();
-await shot('02-garchomp-no-time');
+const texto = await page.evaluate(() => document.body.innerText);
+console.log('\n--- resumos de cobertura ---');
+for (const l of texto.split('\n')) {
+  if (/super efetiv|empilhada|Fraco a|resistencia/i.test(l)) console.log('  ' + l.trim());
+}
 
-console.log('3. Abrindo o editor do set...');
-await page.locator('button').filter({ hasText: 'Garchomp' }).first().click();
-await page.waitForTimeout(2000);
-await shot('03-editor-set');
+console.log('\nabrindo editor do Kingambit...');
+await page.locator('button', { hasText: 'Kingambit' }).first().click();
+await page.waitForTimeout(2500);
+const temSucker = await page.evaluate(async () => {
+  const botoes = [...document.querySelectorAll('button')];
+  const golpe = botoes.find((b) => /GOLPE 1/i.test(b.textContent || ''));
+  if (!golpe) return 'sem seletor de golpe';
+  golpe.click();
+  await new Promise((r) => setTimeout(r, 700));
+  const busca = document.querySelector('input[placeholder="Buscar..."]');
+  if (!busca) return 'sem campo de busca';
+  const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+  setter.call(busca, 'Sucker');
+  busca.dispatchEvent(new Event('input', { bubbles: true }));
+  await new Promise((r) => setTimeout(r, 700));
+  return document.body.innerText.includes('Sucker Punch') ? 'SIM' : 'NAO';
+});
+console.log(`  Sucker Punch aparece no Kingambit: ${temSucker}`);
+await page.screenshot({ path: '/tmp/shots/21-sucker.png', animations: 'disabled', timeout: 60000 });
 
-console.log('4. Ameacas ao Garchomp...');
-await page.goto(`${BASE}/#/ameacas`, { waitUntil: 'networkidle' });
-await shot('04-ameacas', 'text=/Quem ameaca/i');
-
-console.log('5. Sinergias...');
-await page.goto(`${BASE}/#/sinergia/basculegion`, { waitUntil: 'networkidle' });
-await page.waitForTimeout(4000);
-await shot('05-sinergia-basculegion');
-
-console.log('6. Bons contra...');
-await page.getByText('Bons CONTRA ele').click();
-await shot('06-sinergia-contra');
-
-console.log('7. Dex...');
-await page.goto(`${BASE}/#/dex`, { waitUntil: 'networkidle' });
-await shot('07-dex');
-
-console.log('8. Calculadora...');
-await page.goto(`${BASE}/#/calc`, { waitUntil: 'networkidle' });
-await shot('08-calc');
-
-console.log('9. Ajustes...');
-await page.goto(`${BASE}/#/ajustes`, { waitUntil: 'networkidle' });
-await shot('09-ajustes');
-
+console.log('\nerros de runtime:', erros.length ? erros : 'nenhum');
 await browser.close();
-
-console.log('\n=== ERROS DE RUNTIME ===');
-if (!errors.length) console.log('nenhum');
-else errors.forEach((e) => console.log(' -', e));
-console.log('\nscreenshots:', shots.length);

@@ -131,7 +131,7 @@ export function Button({
       type={type}
       onClick={onClick}
       disabled={disabled}
-      className={`rounded-lg px-3 py-2 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-40 ${map[variant]} ${className}`}
+      className={`min-h-[40px] rounded-lg px-3 py-2 text-sm font-medium transition active:scale-95 disabled:cursor-not-allowed disabled:opacity-40 disabled:active:scale-100 ${map[variant]} ${className}`}
     >
       {children}
     </button>
@@ -169,13 +169,27 @@ export function Picker({
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    if (open) {
-      setQuery('');
-      // Espera a folha montar antes de focar, senao o teclado nao sobe no iOS.
-      const t = setTimeout(() => inputRef.current?.focus(), 60);
-      return () => clearTimeout(t);
-    }
-    return undefined;
+    if (!open) return;
+    setQuery('');
+
+    // Trava a rolagem de fundo: sem isso, arrastar dentro da folha rola a
+    // pagina atras dela e a lista "escapa" do dedo.
+    const overflowAnterior = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpen(false);
+    };
+    document.addEventListener('keydown', onKey);
+
+    // Espera a folha montar antes de focar, senao o teclado nao sobe no iOS.
+    const t = setTimeout(() => inputRef.current?.focus(), 60);
+
+    return () => {
+      document.body.style.overflow = overflowAnterior;
+      document.removeEventListener('keydown', onKey);
+      clearTimeout(t);
+    };
   }, [open]);
 
   const filtered = useMemo(() => {
@@ -193,7 +207,7 @@ export function Picker({
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="w-full rounded-lg border border-ink-700 bg-ink-800 px-3 py-2 text-left transition hover:border-ink-600"
+        className="w-full rounded-lg border border-ink-700 bg-ink-800 px-3 py-2.5 text-left transition active:scale-[0.99] active:border-ink-600"
       >
         <span className="block text-[10px] tracking-wide text-ink-400 uppercase">{label}</span>
         <span className={`block truncate text-sm ${current ? 'text-ink-100' : 'text-ink-400'}`}>
@@ -205,15 +219,22 @@ export function Picker({
         <div
           className="fixed inset-0 z-50 flex flex-col bg-ink-950/80 backdrop-blur-sm"
           onClick={() => setOpen(false)}
+          role="dialog"
+          aria-modal="true"
+          aria-label={label}
         >
           <div
-            className="mt-auto flex max-h-[85vh] flex-col rounded-t-2xl border-t border-ink-700 bg-ink-900 safe-bottom sm:m-auto sm:max-h-[70vh] sm:w-full sm:max-w-lg sm:rounded-2xl sm:border"
+            className="mt-auto flex max-h-[88vh] flex-col rounded-t-2xl border-t border-ink-700 bg-ink-900 safe-bottom sm:m-auto sm:max-h-[70vh] sm:w-full sm:max-w-lg sm:rounded-2xl sm:border"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="border-b border-ink-800 p-3">
-              <div className="mb-2 flex items-center justify-between">
-                <span className="text-xs tracking-wide text-ink-400 uppercase">{label}</span>
-                <button onClick={() => setOpen(false)} className="text-sm text-ink-400">
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <span className="min-w-0 truncate text-xs tracking-wide text-ink-400 uppercase">{label}</span>
+                <button
+                  onClick={() => setOpen(false)}
+                  className="-my-2 shrink-0 px-2 py-2 text-sm text-ink-300"
+                  aria-label="Fechar"
+                >
                   Fechar
                 </button>
               </div>
@@ -222,17 +243,29 @@ export function Picker({
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder="Buscar..."
-                className="w-full rounded-lg border border-ink-700 bg-ink-850 px-3 py-2 text-sm outline-none focus:border-accent"
+                enterKeyHint="search"
+                autoComplete="off"
+                autoCorrect="off"
+                spellCheck={false}
+                className="w-full rounded-lg border border-ink-700 bg-ink-850 px-3 py-2.5 text-base outline-none focus:border-accent"
               />
+              {query.trim() !== '' && (
+                <p className="mt-1 text-[11px] text-ink-500">
+                  {filtered.length === 0
+                    ? 'nada encontrado'
+                    : `${filtered.length}${filtered.length === 300 ? '+' : ''} resultado${filtered.length > 1 ? 's' : ''}`}
+                </p>
+              )}
             </div>
-            <div className="min-h-0 flex-1 overflow-y-auto p-2">
+
+            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-2">
               {emptyLabel && (
                 <button
                   onClick={() => {
                     onChange('');
                     setOpen(false);
                   }}
-                  className="mb-1 w-full rounded-lg px-3 py-2 text-left text-sm text-ink-400 hover:bg-ink-800"
+                  className="mb-1 min-h-[44px] w-full rounded-lg px-3 text-left text-sm text-ink-400 active:bg-ink-800"
                 >
                   {emptyLabel}
                 </button>
@@ -244,20 +277,32 @@ export function Picker({
                     onChange(o.value);
                     setOpen(false);
                   }}
-                  className={`flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left hover:bg-ink-800 ${
-                    o.value === value ? 'bg-ink-800' : ''
+                  className={`flex min-h-[48px] w-full items-center gap-2 rounded-lg px-3 py-2 text-left transition active:bg-ink-800 ${
+                    o.value === value ? 'bg-ink-800 ring-1 ring-accent/40' : ''
                   }`}
                 >
                   {o.sprite && (
-                    <img src={o.sprite} alt="" width={32} height={32} style={{ imageRendering: 'pixelated' }} loading="lazy" />
+                    <img
+                      src={o.sprite}
+                      alt=""
+                      width={32}
+                      height={32}
+                      style={{ imageRendering: 'pixelated' }}
+                      loading="lazy"
+                    />
                   )}
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-sm text-ink-100">{o.label}</span>
                     {o.hint && <span className="block truncate text-xs text-ink-400">{o.hint}</span>}
                   </span>
+                  {o.value === value && <span className="shrink-0 text-accent">✓</span>}
                 </button>
               ))}
-              {!filtered.length && <p className="p-4 text-center text-sm text-ink-400">Nada encontrado.</p>}
+              {!filtered.length && (
+                <p className="p-6 text-center text-sm text-ink-400">
+                  Nada encontrado para "{query}".
+                </p>
+              )}
             </div>
           </div>
         </div>

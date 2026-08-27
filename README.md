@@ -3,30 +3,28 @@
 Assistente de teambuilder para **Pokémon Champions**, focado no competitivo
 oficial de double battles (VGC). Roda como PWA instalável no celular e no PC.
 
-## O que ele faz de diferente
+## O que ele faz
 
-A maioria das ferramentas de teambuilder responde "quem é fraco contra o quê"
-pela tabela de tipos. Isso não é suficiente em VGC. Este app parte dos **sets
-reais do ladder** e do **cálculo de dano**, e responde as perguntas que decidem
-partida:
+Tres telas, sem rodeios:
 
-- **Quem ameaça este Pokémon**, ranqueado por usage, com o motivo em texto.
-  O motor resolve ordem de ação por **prioridade antes de Speed** — é o que
-  faz Kingambit matar Basculegion com Sucker Punch mesmo sendo mais lento.
-  Ameaças assim ganham marcação própria em vez de sumirem numa média.
-- **Quem joga bem AO LADO dele.** Em vez de "resiste ao que ele sofre", o
-  motor levanta as ameaças reais do âncora e procura quem **resolve justamente
-  essas ameaças** sem abrir buraco novo. Clicando no Basculegion, ele acha
-  respostas ao Kingambit (Sneasler e afins) e mostra por quê.
-- **Quem joga bem CONTRA ele**, para montar plano de jogo.
-- **Ameaças ao time inteiro**, com uma matriz e uma lista separada do que
-  **ninguém no time responde** — os buracos que o Open Team Sheets entrega
-  de graça para o adversário.
-- **Otimizador de Stat Points.** Você declara o que precisa aguentar, matar e
-  superar em Speed; ele devolve a menor distribuição que cumpre tudo. HP é
-  resolvido em conjunto entre defesa física e especial, então você não paga
-  duas vezes pelo mesmo ponto.
-- **Calculadora de dano** integrada aos sets do time, nos dois sentidos.
+**Time** — monta o time e responde tipagem na mesma tela. Cada Pokemon entra
+com o set mais jogado do ladder (ability, item, nature, Stat Points e golpes)
+e mostra no proprio card, sem precisar abrir nada, a tipagem, o que o machuca,
+o que ele resiste e a que e imune. Abaixo do time, dois blocos de cobertura:
+
+- **Ofensiva** — contra quais tipos o time bate super efetivo. Serve para achar
+  o buraco antes da partida: um time sem nada de Aco ou Veneno nao tem resposta
+  ofensiva para Fada, e isso decide matchup em doubles.
+- **Defensiva** — quais tipos machucam o time, contando quantos sofrem contra
+  quantos resistem. O que importa nao e ter fraqueza, e ter fraqueza empilhada
+  sem ninguem que segure.
+
+**Calculadora** — dano nos dois sentidos, com os quatro golpes de cada lado
+editaveis a partir do movepool inteiro (nao so dos quatro mais jogados), tempo,
+telas, Helping Hand, boosts e comparacao de Speed.
+
+**Dex** — o ladder por usage, com tipagem e fraquezas, e um toque para levar
+qualquer um para o time.
 
 ## Regras do formato que o app respeita
 
@@ -131,13 +129,29 @@ npx cap open android
 
 ```
 src/
-├── data/       regras do formato, matemática de SP, camada de dex
+├── data/       regras do formato, matemática de SP, dex, itens legais
 ├── api/        cliente HTTP, normalizador tolerante, cache
-├── engine/     dano, ameaças, sinergia, otimizador, validação
+├── engine/     dano, cobertura de tipos, sets presumidos, validação
 ├── store/      estado de meta e de times
 ├── components/ UI compartilhada
-└── pages/      Time, Ameaças, Sinergia, Calc, SP, Dex, Ajustes
+└── pages/      Time, Calculadora, Dex, Ajustes
 ```
+
+### Legalidade: o que vem de onde
+
+| O quê | Fonte |
+| --- | --- |
+| Quais Pokémon são legais | API ao vivo, cruzada com os grupos banidos da regulation |
+| Movepool | Learnsets do Showdown, percorrendo **toda a cadeia evolutiva** e filtrando para o que é alcançável na geração 9 |
+| Itens | Itens padrão da geração 9, mais a Mega Stone da própria espécie; sem Poké Balls, cristais Z ou itens presos a outro dono |
+| Usage, spreads e movesets do ladder | API ao vivo |
+
+O detalhe do movepool é sutil e custou um bug: os learnsets guardam só o que
+cada estágio aprende por conta própria. Sucker Punch aparece em Pawniard, não em
+Kingambit — quem não sobe a cadeia esconde metade do movepool de todo Pokémon
+completamente evoluído. No sentido oposto, cada golpe registra em que gerações
+pode ser obtido, e mostrar os de gerações antigas seria oferecer sets
+impossíveis de montar.
 
 ## Limitações conhecidas
 

@@ -28,6 +28,25 @@ export const BATTLE_TYPES: TypeName[] = [
   'Steel', 'Fairy',
 ];
 
+/**
+ * Abreviacoes de tres letras para as grades de tipo.
+ *
+ * Dezoito celulas numa tela de celular nao comportam "Fighting" nem
+ * "Electric"; truncar com reticencias produz "FIGHT…" e "ELECT…", que o olho
+ * tem de decifrar. Tres letras cabem inteiras e sao lidas de imediato.
+ *
+ * Ficam em ingles para casar com as capsulas de tipo dos cards e com o que o
+ * jogador ja le no Showdown e nos sites de meta. Traduzir so aqui produziria o
+ * mesmo tipo escrito de dois jeitos na mesma tela.
+ */
+export const TYPE_ABBR: Record<string, string> = {
+  Normal: 'NOR', Fire: 'FIR', Water: 'WAT', Electric: 'ELE',
+  Grass: 'GRA', Ice: 'ICE', Fighting: 'FIG', Poison: 'POI',
+  Ground: 'GRO', Flying: 'FLY', Psychic: 'PSY', Bug: 'BUG',
+  Rock: 'ROC', Ghost: 'GHO', Dragon: 'DRA', Dark: 'DAR',
+  Steel: 'STE', Fairy: 'FAI',
+};
+
 export const TYPE_COLOR: Record<string, string> = {
   Normal: '#9fa19f', Fire: '#e8743a', Water: '#4a90d9', Electric: '#e3c934',
   Grass: '#5cb85c', Ice: '#5fc9d4', Fighting: '#c8443a', Poison: '#9b59b6',
@@ -109,8 +128,22 @@ const learnsetCache = new Map<string, Promise<string[]>>();
 /**
  * Movepool completo de uma especie.
  *
- * Megas nao tem learnset proprio — herdam o da forma base — e varias formas
- * regionais apontam para um ancestral. Subimos a cadeia ate achar dados.
+ * Os learnsets do Showdown guardam so o que aquele estagio aprende por conta
+ * propria: Sucker Punch aparece em Pawniard, nao em Kingambit, e um Kingambit
+ * de verdade herda tudo que Pawniard e Bisharp aprendem. Formas alternativas e
+ * Megas tambem apontam para um ancestral em vez de repetir a lista.
+ *
+ * Percorremos entao todos os ancestrais — pre-evolucoes (prevo), forma base
+ * (baseSpecies) e forma de origem (changesFrom) — e unimos o que cada um
+ * ensina. Sem isso o app escondia metade do movepool de todo Pokemon
+ * completamente evoluido, que e justamente o que se joga no formato.
+ *
+ * No sentido oposto, cada golpe do learnset guarda em que geracoes ele pode
+ * ser obtido ("9M" = TM da gen 9, "8L20" = nivel 20 na gen 8, e assim por
+ * diante). Ficamos so com o que tem origem na gen 9: o Champions herda o
+ * movepool de Scarlet/Violet, e golpes que so existiam em geracoes anteriores
+ * apareceriam como opcao sem serem jogaveis. Indeedee, por exemplo, lista 57
+ * golpes ao todo mas so 44 sao alcancaveis hoje.
  */
 export function learnsetOf(nameOrId: string): Promise<string[]> {
   const id = normalizeId(nameOrId);
@@ -118,31 +151,39 @@ export function learnsetOf(nameOrId: string): Promise<string[]> {
   if (cached) return cached;
 
   const promise = (async () => {
-    const seen = new Set<string>();
-    const moves = new Set<string>();
-    let current: Specie | null = getSpecies(id);
+    const inicial = getSpecies(id);
+    if (!inicial) return [];
 
-    while (current && !seen.has(current.id)) {
-      seen.add(current.id);
+    const visitados = new Set<string>();
+    const fila: Specie[] = [inicial];
+    const moves = new Set<string>();
+
+    while (fila.length) {
+      const atual = fila.shift()!;
+      if (visitados.has(atual.id)) continue;
+      visitados.add(atual.id);
+
       try {
-        const data = await dex.learnsets.get(current.id);
+        const data = await dex.learnsets.get(atual.id);
         if (data?.learnset) {
-          for (const moveId of Object.keys(data.learnset)) moves.add(moveId);
+          for (const [moveId, fontes] of Object.entries(data.learnset)) {
+            if (fontes.some((fonte) => fonte.startsWith('9'))) moves.add(moveId);
+          }
         }
       } catch {
-        // Especie sem learnset registrado: seguimos subindo a cadeia.
+        // Especie sem learnset proprio: os ancestrais respondem por ela.
       }
-      const parentName = current.changesFrom || current.baseSpecies;
-      const parent: Specie | null =
-        parentName && parentName !== current.name ? getSpecies(parentName) : null;
-      // Se ja achamos moves e nao ha pai, paramos.
-      if (!parent) break;
-      current = parent;
+
+      for (const nome of [atual.prevo, atual.baseSpecies, atual.changesFrom]) {
+        if (!nome || nome === atual.name) continue;
+        const ancestral = getSpecies(nome);
+        if (ancestral && !visitados.has(ancestral.id)) fila.push(ancestral);
+      }
     }
 
     return [...moves]
       .map((mid) => getMove(mid))
-      .filter((m): m is Move => Boolean(m) && m!.isNonstandard !== 'CAP')
+      .filter((m): m is Move => m !== null && m.isNonstandard !== 'CAP')
       .map((m) => m.name)
       .sort((a, b) => a.localeCompare(b));
   })();

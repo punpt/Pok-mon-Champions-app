@@ -1,5 +1,4 @@
 import { useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
 import { useMetaStore } from '../store/metaStore';
 import { useAddFromMeta } from '../lib/useAddFromMeta';
 import { getSpecies } from '../data/dex';
@@ -84,14 +83,12 @@ export default function DexPage() {
                   </div>
                   <p className="mt-0.5 text-[11px] text-ink-400">{(e.usage * 100).toFixed(1)}% de usage</p>
                 </div>
-                <div className="flex shrink-0 flex-col gap-1">
-                  <button onClick={() => void addFromMeta(e.id)} className="rounded border border-ink-700 px-2 py-1 text-[11px] text-ink-300">
-                    + Time
-                  </button>
-                  <Link to={`/sinergia/${e.id}`} className="rounded border border-ink-700 px-2 py-1 text-center text-[11px] text-accent">
-                    Sinergia
-                  </Link>
-                </div>
+                <button
+                  onClick={() => void addFromMeta(e.id)}
+                  className="shrink-0 rounded-lg border border-ink-700 px-3 py-2 text-[11px] text-ink-300 transition active:scale-95"
+                >
+                  + Time
+                </button>
               </div>
               {fraquezas.length > 0 && (
                 <p className="mt-1.5 text-[10px] text-ink-600">

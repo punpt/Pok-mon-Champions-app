@@ -3,19 +3,13 @@ import { NavLink, Navigate, Route, Routes } from 'react-router-dom';
 import { useMetaStore } from './store/metaStore';
 import { activeRegulation, regulationIsStale } from './data/rules';
 import TeamPage from './pages/TeamPage';
-import ThreatsPage from './pages/ThreatsPage';
-import SynergyPage from './pages/SynergyPage';
 import CalcPage from './pages/CalcPage';
-import OptimizerPage from './pages/OptimizerPage';
 import DexPage from './pages/DexPage';
 import SettingsPage from './pages/SettingsPage';
 
 const NAV = [
   { to: '/time', label: 'Time', icon: '⬢' },
-  { to: '/ameacas', label: 'Ameacas', icon: '⚠' },
-  { to: '/sinergia', label: 'Sinergia', icon: '⇄' },
-  { to: '/calc', label: 'Calc', icon: '≡' },
-  { to: '/sp', label: 'SP', icon: '◎' },
+  { to: '/calc', label: 'Calculadora', icon: '≡' },
   { to: '/dex', label: 'Dex', icon: '☰' },
 ];
 
@@ -94,11 +88,7 @@ export default function App() {
         <Routes>
           <Route path="/" element={<Navigate to="/time" replace />} />
           <Route path="/time" element={<TeamPage />} />
-          <Route path="/ameacas" element={<ThreatsPage />} />
-          <Route path="/sinergia" element={<SynergyPage />} />
-          <Route path="/sinergia/:speciesId" element={<SynergyPage />} />
           <Route path="/calc" element={<CalcPage />} />
-          <Route path="/sp" element={<OptimizerPage />} />
           <Route path="/dex" element={<DexPage />} />
           <Route path="/ajustes" element={<SettingsPage />} />
           <Route path="*" element={<Navigate to="/time" replace />} />
@@ -112,13 +102,24 @@ export default function App() {
               key={item.to}
               to={item.to}
               className={({ isActive }) =>
-                `flex flex-1 flex-col items-center gap-0.5 py-2 text-[10px] transition ${
+                `relative flex min-h-[56px] flex-1 flex-col items-center justify-center gap-1 text-[11px] transition active:bg-ink-850 ${
                   isActive ? 'text-accent' : 'text-ink-400'
                 }`
               }
             >
-              <span className="text-base leading-none">{item.icon}</span>
-              {item.label}
+              {({ isActive }) => (
+                <>
+                  {/* Marcador no topo: com tres abas largas, so a cor do texto
+                      nao deixava obvio onde voce esta. */}
+                  <span
+                    className={`absolute inset-x-4 top-0 h-0.5 rounded-full transition ${
+                      isActive ? 'bg-accent' : 'bg-transparent'
+                    }`}
+                  />
+                  <span className="text-lg leading-none">{item.icon}</span>
+                  {item.label}
+                </>
+              )}
             </NavLink>
           ))}
         </div>
